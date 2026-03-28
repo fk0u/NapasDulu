@@ -15,10 +15,10 @@
         "title": "Napas Dulu",
         "width": 800,
         "height": 600,
-        "alwaysOnTop": true,
-        "fullscreen": true,
-        "decorations": false,
-        "skipTaskbar": true
+        "alwaysOnTop": false,
+        "fullscreen": false,
+        "decorations": true,
+        "skipTaskbar": false
       }
     ],
     "security": {
@@ -28,11 +28,14 @@
   "bundle": {
     "active": true,
     "publisher": "KOU & KILOUX",
-    "targets": ["nsis"],
+    "targets": ["nsis", "msi"],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": "en-US"
       }
     },
     "icon": [

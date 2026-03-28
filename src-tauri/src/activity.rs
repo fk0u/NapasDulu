@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter};
 
 pub static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
 pub static ACCUMULATED_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
+pub static DAILY_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 
 fn update_activity() {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -25,8 +26,9 @@ fn update_activity() {
         if delta < 300 { 
             // Tambahkan durasi jika idle kurang dari 5 menit
             ACCUMULATED_ACTIVE_TIME.fetch_add(delta, Ordering::Relaxed);
+            DAILY_ACTIVE_TIME.fetch_add(delta, Ordering::Relaxed);
         } else {
-            // Idle untuk > 5 menit, reset time akumulatif
+            // Idle untuk > 5 menit, reset time akumulatif sesi
             ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed);
         }
     }
@@ -59,18 +61,56 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
 
     // Thread for Threshold validation
     std::thread::spawn(move || {
+        use tauri::Manager;
+        use chrono::Utc;
+        
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(10));
-            
-            let total_active = ACCUMULATED_ACTIVE_TIME.load(Ordering::Relaxed);
-            
-            // Limit = 90 menit (5400 detik)
-            if total_active >= 5400 {
-                let _ = app_handle.emit("trigger-lockdown", ());
-                ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed);
-            } else if total_active >= 5340 {
-                // Peringatan di menit ke-89
-                let _ = app_handle.emit("trigger-warning", ());
+            // INITIAL LOAD FOR TODAY
+            {
+                let state = app_handle.state::<crate::database::DbState>();
+                let conn = state.conn.lock().unwrap();
+                let today = Utc::now().format("%Y-%m-%d").to_string();
+                
+                let _ = conn.execute(
+                    "INSERT OR IGNORE INTO usage_history (date_logged, active_seconds) VALUES (?1, 0)",
+                    [&today],
+                );
+                
+                if DAILY_ACTIVE_TIME.load(Ordering::Relaxed) == 0 {
+                    let saved_secs: u64 = conn.query_row(
+                        "SELECT active_seconds FROM usage_history WHERE date_logged = ?1",
+                        [&today],
+                        |row| row.get(0),
+                    ).unwrap_or(0);
+                    DAILY_ACTIVE_TIME.store(saved_secs, Ordering::Relaxed);
+                }
+            }
+
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                
+                let total_active = ACCUMULATED_ACTIVE_TIME.load(Ordering::Relaxed);
+                let daily_active = DAILY_ACTIVE_TIME.load(Ordering::Relaxed);
+                
+                // Save daily_active to DB
+                {
+                    let state = app_handle.state::<crate::database::DbState>();
+                    let conn = state.conn.lock().unwrap();
+                    let today = Utc::now().format("%Y-%m-%d").to_string();
+                    let _ = conn.execute(
+                        "UPDATE usage_history SET active_seconds = ?1 WHERE date_logged = ?2",
+                        rusqlite::params![daily_active, today],
+                    );
+                }
+                
+                // Limit = 90 menit (5400 detik) for SINGLE SESSION
+                if total_active >= 5400 {
+                    let _ = app_handle.emit("trigger-lockdown", ());
+                    ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed); // reset only the session
+                } else if total_active >= 5340 {
+                    // Peringatan di menit ke-89
+                    let _ = app_handle.emit("trigger-warning", ());
+                }
             }
         }
     });

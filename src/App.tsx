@@ -1,11 +1,17 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, Terminal, Power, User, Activity, Coffee, ActivitySquare, Ban } from "lucide-react";
+import { ShieldAlert, Terminal, Power, User, Activity, Coffee, ActivitySquare, Ban, BarChart3, Clock } from "lucide-react";
 import { audioSynth } from "./lib/audio";
 
 type AppState = "ONBOARDING" | "IDLE" | "DIAGNOSTIC" | "LOCKDOWN";
+
+interface UsageDay {
+  date: string;
+  active_seconds: number;
+}
 
 function App() {
   const [appState, setAppState] = useState<AppState>("IDLE");
@@ -16,14 +22,16 @@ function App() {
   const [onboardingName, setOnboardingName] = useState("");
 
   // Diagnostic form state
-  const [sleepHours, setSleepHours] = useState("");
-  const [wakeHours, setWakeHours] = useState("");
+  const [bedTime, setBedTime] = useState("");
+  const [wakeTime, setWakeTime] = useState("");
   const [exercised, setExercised] = useState(false);
 
   // Phase 2: Immersive Dash & Audio
   const [activeTime, setActiveTime] = useState(0);
   const [stats, setStats] = useState({ bypass_count: 0, sleep_hours: 0, exercised: false });
   const [warning, setWarning] = useState(false);
+  const [usageHistory, setUsageHistory] = useState<UsageDay[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Phase 2: Breathing & Strict Bypass
   const [breathingPhase, setBreathingPhase] = useState<"inhale"|"hold"|"exhale">("inhale");
@@ -68,6 +76,14 @@ function App() {
   // IDLE Dashboard Poller
   useEffect(() => {
     let interval: number;
+    if (appState === "IDLE" || appState === "ONBOARDING" || appState === "DIAGNOSTIC") {
+      // Revert window to normal if it's not lockdown
+      const appWindow = getCurrentWindow();
+      appWindow.setFullscreen(false);
+      appWindow.setAlwaysOnTop(false);
+      appWindow.setDecorations(true);
+    }
+    
     if (appState === "IDLE") {
       audioSynth.playBootSequence();
       
@@ -81,6 +97,11 @@ function App() {
           } else {
               setWarning(false);
           }
+          
+          if (showHistory) {
+              const hist: UsageDay[] = await invoke("get_usage_history");
+              setUsageHistory(hist);
+          }
         } catch(e) {}
       };
       
@@ -88,7 +109,7 @@ function App() {
       interval = window.setInterval(fetchStats, 1000);
     }
     return () => clearInterval(interval);
-  }, [appState]);
+  }, [appState, showHistory]);
 
   // Lockdown timer logic & Breathing Loop
   useEffect(() => {
@@ -98,6 +119,11 @@ function App() {
 
     if (appState === "LOCKDOWN") {
       isActive = true;
+      const appWindow = getCurrentWindow();
+      appWindow.setFullscreen(true);
+      appWindow.setAlwaysOnTop(true);
+      appWindow.setDecorations(false);
+      
       if(countdown > 0) {
         timer = window.setInterval(() => {
           setCountdown((prev) => prev - 1);
@@ -143,10 +169,27 @@ function App() {
 
   const handleDiagnosticSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!bedTime || !wakeTime) {
+       alert("Please enter both sleep and wake times.");
+       return;
+    }
+
+    // Compute sleep hours
+    const [bH, bM] = bedTime.split(':').map(Number);
+    const [wH, wM] = wakeTime.split(':').map(Number);
+    
+    let bedMins = bH * 60 + bM;
+    let wakeMins = wH * 60 + wM;
+    
+    if (wakeMins <= bedMins) {
+        wakeMins += 24 * 60; // Next day
+    }
+    const computedSleepHours = (wakeMins - bedMins) / 60;
+
     try {
       const res: any = await invoke("log_morning_diagnostic", {
-        sleepHours: parseFloat(sleepHours),
-        wakeHours: parseFloat(wakeHours),
+        sleepHours: computedSleepHours,
+        wakeHours: 0.0, // Deprecated but retained for API compatibility in this update
         exercised
       });
       if (res.success) {
@@ -216,29 +259,32 @@ function App() {
       <AnimatePresence mode="wait">
         {/* ONBOARDING AND DIAGNOSTIC (Kept mostly similar but styled better) */}
         {appState === "ONBOARDING" && (
-          <motion.div key="onboarding" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center">
-            <div className="p-10 border border-system-border bg-black/50 backdrop-blur-md rounded-2xl w-[450px] shadow-[0_0_50px_rgba(239,68,68,0.1)] flex flex-col items-center">
-              <div className="bg-system-accent/10 p-4 rounded-full mb-6">
-                <Terminal className="w-10 h-10 text-system-accent" />
-              </div>
-              <h1 className="text-2xl font-bold mb-2 tracking-wide font-mono">NEURAL_UPLINK</h1>
-              <p className="text-gray-400 text-sm mb-8 text-center border-b border-system-border/50 pb-6 w-full">Identify biological operator.</p>
+          <motion.div key="onboarding" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-system-accent/5 to-transparent pointer-events-none" />
+            <div className="p-10 border border-system-border/60 bg-[#070707]/80 backdrop-blur-2xl rounded-3xl w-[480px] shadow-[0_20px_80px_rgba(239,68,68,0.15)] flex flex-col items-center relative overflow-hidden group">
+              <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-system-accent/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
               
-              <form onSubmit={handleOnboardingSubmit} className="w-full flex flex-col gap-4">
+              <div className="bg-system-accent/10 border border-system-accent/20 p-5 rounded-2xl mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
+                <Terminal className="w-12 h-12 text-system-accent drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
+              </div>
+              <h1 className="text-3xl font-bold mb-3 tracking-widest font-mono text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 text-center">NEURAL_UPLINK</h1>
+              <p className="text-gray-500 text-xs mb-10 text-center uppercase tracking-[0.2em] w-full">Identify biological operator</p>
+              
+              <form onSubmit={handleOnboardingSubmit} className="w-full flex flex-col gap-6">
                 <div>
-                  <label className="block text-xs uppercase tracking-widest text-system-accent mb-1 font-mono">Identity_Token</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <div className="relative group">
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-system-accent transition-colors duration-300" />
                     <input 
                       type="text" autoFocus required
-                      placeholder="Enter designation..."
-                      className="w-full bg-[#0a0a0a] border border-system-border rounded-lg pl-10 pr-4 py-3 outline-none focus:border-system-accent transition-colors text-white font-mono placeholder:text-gray-600"
+                      placeholder="ENTER DESIGNATION..."
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl pl-12 pr-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono placeholder:text-gray-700 placeholder:text-sm"
                       value={onboardingName} onChange={(e) => setOnboardingName(e.target.value)}
                     />
                   </div>
                 </div>
-                <button type="submit" className="w-full mt-4 bg-system-accent text-white font-medium rounded-lg py-3 hover:bg-red-600 transition-all active:scale-95 shadow-lg shadow-system-accent/20 cursor-pointer uppercase tracking-widest font-mono text-sm">
-                  Initialize
+                <button type="submit" className="relative w-full mt-6 bg-gradient-to-b from-system-accent to-red-700 text-white font-bold rounded-xl py-4 hover:to-red-600 transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] cursor-pointer uppercase tracking-widest font-mono overflow-hidden">
+                  <span className="relative z-10 drop-shadow-md">Initialize Session</span>
+                  <div className="absolute inset-0 bg-white/20 translate-y-full hover:translate-y-0 transition-transform duration-300 ease-out" />
                 </button>
               </form>
             </div>
@@ -246,45 +292,68 @@ function App() {
         )}
 
         {appState === "DIAGNOSTIC" && (
-          <motion.div key="diagnostic" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center">
-            <div className="p-10 border border-system-border bg-black/50 backdrop-blur-md rounded-2xl w-[450px] shadow-[0_0_50px_rgba(239,68,68,0.1)]">
-              <div className="flex items-center gap-3 mb-8 border-b border-system-border/50 pb-4">
-                <ActivitySquare className="w-6 h-6 text-system-accent" />
-                <h1 className="text-xl font-bold tracking-wide font-mono">SYS_DIAGNOSTICS</h1>
+          <motion.div key="diagnostic" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center relative">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.03)_0%,transparent_100%)] pointer-events-none" />
+            <div className="p-10 border border-system-border/60 bg-[#070707]/80 backdrop-blur-2xl rounded-3xl w-[520px] shadow-[0_20px_80px_rgba(0,0,0,0.8)] relative overflow-hidden group">
+              <div className="absolute bottom-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-system-accent/40 to-transparent" />
+
+              <div className="flex items-center gap-4 mb-10 border-b border-system-border/40 pb-6">
+                <div className="bg-system-accent/10 p-3 rounded-xl border border-system-accent/20">
+                  <ActivitySquare className="w-7 h-7 text-system-accent shadow-system-accent drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold tracking-[0.15em] font-mono text-white">SYS_DIAGNOSTICS</h1>
+                  <p className="text-gray-500 text-[10px] mt-1 uppercase font-mono tracking-widest">Auth: <span className="text-system-accent/90">[{userName}]</span></p>
+                </div>
               </div>
               
-              <p className="text-gray-400 text-sm mb-6 font-mono">Auth: <span className="text-system-accent/80 font-medium">[{userName}]</span></p>
-              
-              <form onSubmit={handleDiagnosticSubmit} className="space-y-5">
-                <div className="flex gap-4">
-                  <div className="w-1/2">
-                    <label className="block text-[10px] uppercase tracking-widest text-gray-500 mb-1 font-mono">Sleep (HRS)</label>
-                    <input 
-                      type="number" step="0.5" required min="0" max="24"
-                      className="w-full bg-[#0a0a0a] border border-system-border rounded-lg px-4 py-3 outline-none focus:border-system-accent transition-colors text-white font-mono text-lg text-center"
-                      value={sleepHours} onChange={(e) => setSleepHours(e.target.value)}
-                    />
+              <form onSubmit={handleDiagnosticSubmit} className="space-y-8">
+                <div className="flex gap-6">
+                  <div className="w-1/2 group">
+                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Bed Time</label>
+                    <div className="relative">
+                      <input 
+                        type="time" required
+                        className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
+                        style={{ colorScheme: 'dark' }}
+                        value={bedTime} onChange={(e) => setBedTime(e.target.value)}
+                      />
+                    </div>
                   </div>
-                  <div className="w-1/2">
-                    <label className="block text-[10px] uppercase tracking-widest text-gray-500 mb-1 font-mono">Wake (HRS)</label>
-                    <input 
-                      type="number" step="0.5" required min="0" max="24"
-                      className="w-full bg-[#0a0a0a] border border-system-border rounded-lg px-4 py-3 outline-none focus:border-system-accent transition-colors text-white font-mono text-lg text-center"
-                      value={wakeHours} onChange={(e) => setWakeHours(e.target.value)}
-                    />
+                  <div className="w-1/2 group">
+                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Wake Time</label>
+                    <div className="relative">
+                      <input 
+                        type="time" required
+                        className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
+                        style={{ colorScheme: 'dark' }}
+                        value={wakeTime} onChange={(e) => setWakeTime(e.target.value)}
+                      />
+                    </div>
                   </div>
                 </div>
-                <label className="flex items-center gap-3 p-4 border border-system-border rounded-lg bg-[#0a0a0a] cursor-pointer hover:border-system-accent/50 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    className="w-5 h-5 accent-system-accent rounded-sm cursor-pointer"
-                    checked={exercised} onChange={(e) => setExercised(e.target.checked)}
-                  />
-                  <span className="text-sm font-medium font-mono text-gray-300">Physical Activity Detected</span>
+                
+                <label className="flex items-center gap-4 p-5 border border-system-border/80 rounded-xl bg-[#030303] cursor-pointer hover:border-system-accent/50 hover:bg-[#0a0a0a] transition-all group relative overflow-hidden">
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-system-accent scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom" />
+                  <div className="relative flex items-center justify-center w-6 h-6 rounded-md border border-gray-600 group-hover:border-system-accent">
+                    <input 
+                      type="checkbox" 
+                      className="absolute opacity-0 w-full h-full cursor-pointer"
+                      checked={exercised} onChange={(e) => setExercised(e.target.checked)}
+                    />
+                    {exercised && (
+                      <motion.div 
+                        initial={{ scale: 0 }} animate={{ scale: 1 }} 
+                        className="w-3 h-3 bg-system-accent rounded-sm shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                      />
+                    )}
+                  </div>
+                  <span className="text-xs font-semibold font-mono text-gray-300 uppercase tracking-widest group-hover:text-white transition-colors">Physically Active Today</span>
                 </label>
                 
-                <button type="submit" className="w-full mt-4 bg-system-text text-system-bg font-bold rounded-lg py-3 hover:bg-white transition-all active:scale-95 cursor-pointer uppercase tracking-widest font-mono text-sm">
-                  Run Core System
+                <button type="submit" className="relative w-full mt-4 bg-[#e5e5e5] text-black font-extrabold rounded-xl py-4 hover:bg-white transition-all active:scale-[0.98] shadow-[0_0_15px_rgba(255,255,255,0.2)] cursor-pointer uppercase tracking-[0.2em] font-mono text-xs overflow-hidden group/btn">
+                  <span className="relative z-10 group-hover/btn:drop-shadow-[0_0_2px_rgba(0,0,0,0.5)] transition-all">Engage Core System</span>
+                  <div className="absolute inset-0 bg-white translate-y-full hover:translate-y-0 transition-transform duration-300 ease-out" />
                 </button>
               </form>
             </div>
@@ -295,35 +364,103 @@ function App() {
           <motion.div key="idle" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center">
              
              {/* Dynamic Dashboard HUD */}
-             <div className="relative flex items-center justify-center">
-                <svg width="300" height="300" className="transform -rotate-90">
-                  <circle cx="150" cy="150" r={ringRadius} stroke="#111" strokeWidth="8" fill="none" />
-                  <motion.circle 
-                    cx="150" cy="150" r={ringRadius} 
-                    stroke={warning ? "#ef4444" : "#4ade80"} 
-                    strokeWidth="8" fill="none" 
-                    strokeLinecap="round"
-                    strokeDasharray={ringCircumference}
-                    animate={{ strokeDashoffset }}
-                    transition={{ ease: "linear", duration: 1 }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <p className={`text-4xl font-light font-mono mb-1 ${warning ? 'text-system-accent drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-gray-200'}`}>
-                      {Math.floor(activeTime / 60).toString().padStart(2, '0')}:{(activeTime % 60).toString().padStart(2, '0')}
-                    </p>
-                    <p className="text-[10px] tracking-[0.3em] uppercase text-gray-500 font-mono">
-                      {warning ? 'Limit Approaching' : 'Active Protocol'}
-                    </p>
-                </div>
-             </div>
+             {!showHistory ? (
+               <motion.div 
+                 key="main-hud"
+                 initial={{ opacity: 0, scale: 0.9 }} 
+                 animate={{ opacity: 1, scale: 1 }} 
+                 exit={{ opacity: 0, scale: 0.9 }} 
+                 className="relative flex items-center justify-center transform transition-all"
+               >
+                  <svg width="300" height="300" className="transform -rotate-90 filter drop-shadow-[0_0_15px_rgba(255,255,255,0.05)]">
+                    <circle cx="150" cy="150" r={ringRadius} stroke="#111" strokeWidth="8" fill="none" />
+                    <motion.circle 
+                      cx="150" cy="150" r={ringRadius} 
+                      stroke={warning ? "#ef4444" : "#4ade80"} 
+                      strokeWidth="8" fill="none" 
+                      strokeLinecap="round"
+                      strokeDasharray={ringCircumference}
+                      animate={{ strokeDashoffset }}
+                      transition={{ ease: "linear", duration: 1 }}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <p className={`text-4xl font-light font-mono mb-1 ${warning ? 'text-system-accent drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-gray-200'}`}>
+                        {Math.floor(activeTime / 60).toString().padStart(2, '0')}:{(activeTime % 60).toString().padStart(2, '0')}
+                      </p>
+                      <p className="text-[10px] tracking-[0.3em] uppercase text-gray-500 font-mono">
+                        {warning ? 'Limit Approaching' : 'Session Active'}
+                      </p>
+                  </div>
+               </motion.div>
+             ) : (
+               <motion.div 
+                 key="history-hud"
+                 initial={{ opacity: 0, y: 20 }} 
+                 animate={{ opacity: 1, y: 0 }} 
+                 exit={{ opacity: 0, y: 20 }} 
+                 className="flex flex-col items-center justify-center w-[600px] h-[300px] bg-black/40 border border-system-border/50 rounded-xl p-6 backdrop-blur-md relative"
+               >
+                 <div className="absolute top-4 left-6 flex items-center gap-2">
+                   <Clock className="w-4 h-4 text-system-accent" />
+                   <h2 className="text-xs font-mono uppercase tracking-widest text-gray-300">Activity History</h2>
+                 </div>
+                 
+                 <div className="w-full h-full flex items-end justify-between mt-8 gap-2">
+                    {usageHistory.length === 0 ? (
+                       <p className="text-gray-500 font-mono text-sm w-full text-center mb-10">No history protocol found.</p>
+                    ) : (
+                       usageHistory.map((day, i) => {
+                         // max 12 hours for scaling
+                         const heightPercent = Math.min((day.active_seconds / 43200) * 100, 100);
+                         const dateObj = new Date(day.date);
+                         const isToday = i === usageHistory.length - 1;
+                         return (
+                           <div key={i} className="flex flex-col items-center flex-1 group">
+                             <div className="w-full flex justify-center h-[180px] items-end relative">
+                               <span className="absolute -top-6 text-[9px] font-mono text-system-accent opacity-0 group-hover:opacity-100 transition-opacity">
+                                 {Math.floor(day.active_seconds / 3600)}h {Math.floor((day.active_seconds % 3600) / 60)}m
+                               </span>
+                               <motion.div 
+                                 initial={{ height: 0 }}
+                                 animate={{ height: `${heightPercent}%` }}
+                                 transition={{ duration: 0.8, delay: i * 0.1, type: "spring" }}
+                                 className={`w-8 rounded-t-sm ${isToday ? 'bg-system-accent/80' : 'bg-[#222] group-hover:bg-[#333]'} relative overflow-hidden`}
+                               >
+                                  {isToday && (
+                                    <div className="absolute inset-0 bg-gradient-to-t from-transparent to-white/20" />
+                                  )}
+                               </motion.div>
+                             </div>
+                             <span className={`text-[10px] mt-3 font-mono uppercase tracking-widest ${isToday ? 'text-white font-bold' : 'text-gray-500'}`}>
+                               {dateObj.toLocaleDateString('en-US', { weekday: 'short' })}
+                             </span>
+                           </div>
+                         );
+                       })
+                    )}
+                 </div>
+               </motion.div>
+             )}
 
-             <div className="mt-12 flex items-center justify-between w-[500px] border-t border-system-border/50 pt-8">
+             <div className="mt-12 flex items-center justify-between w-[600px] border-t border-system-border/50 pt-8">
                <div className="flex flex-col items-center">
                  <Activity className="w-5 h-5 text-gray-500 mb-2" />
                  <span className="text-xl font-mono text-white">{stats.sleep_hours.toFixed(1)}h</span>
                  <span className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Sleep Logs</span>
                </div>
+               
+               <button 
+                 onClick={() => setShowHistory(!showHistory)}
+                 className="group flex flex-col items-center justify-center bg-[#0a0a0a] border border-system-border hover:border-system-accent/50 rounded-lg p-3 px-6 transition-all active:scale-95 cursor-pointer relative overflow-hidden shadow-[0_0_15px_rgba(0,0,0,0.5)]"
+               >
+                 <div className="absolute inset-0 bg-system-accent/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                 <BarChart3 className={`w-5 h-5 mb-2 transition-colors ${showHistory ? 'text-system-accent' : 'text-gray-400 group-hover:text-white'}`} />
+                 <span className="text-[10px] text-gray-400 group-hover:text-white uppercase tracking-widest mt-1 relative z-10">
+                   {showHistory ? 'Close HUD' : 'Digital HUD'}
+                 </span>
+               </button>
+
                <div className="flex flex-col items-center">
                  <ShieldAlert className="w-5 h-5 text-gray-500 mb-2" />
                  <span className={`text-xl font-mono ${stats.bypass_count > 0 ? 'text-system-accent' : 'text-white'}`}>{stats.bypass_count}/2</span>

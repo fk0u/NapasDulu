@@ -102,3 +102,34 @@ pub fn get_stats(state: State<'_, DbState>) -> StatsResponse {
         exercised,
     }
 }
+
+#[derive(Serialize)]
+pub struct UsageDay {
+    pub date: String,
+    pub active_seconds: u64,
+}
+
+#[tauri::command]
+pub fn get_usage_history(state: State<'_, DbState>) -> Vec<UsageDay> {
+    let conn = state.conn.lock().unwrap();
+    
+    // Get the last 7 days of data ordered by date ASC
+    let mut stmt = conn.prepare("SELECT date_logged, active_seconds FROM usage_history ORDER BY date_logged DESC LIMIT 7").unwrap();
+    let iter = stmt.query_map([], |row| {
+        Ok(UsageDay {
+            date: row.get(0)?,
+            active_seconds: row.get(1)?,
+        })
+    }).unwrap();
+
+    let mut result: Vec<UsageDay> = Vec::new();
+    for day in iter {
+        if let Ok(d) = day {
+            result.push(d);
+        }
+    }
+    
+    // Reverse to make it oldest to newest
+    result.reverse();
+    result
+}
