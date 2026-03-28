@@ -1,0 +1,48 @@
+name: "Release Automated Forge"
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: install dependencies
+        run: npm install
+        
+      - name: build and create release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: The Reality Override ${{ github.ref_name }}
+          releaseName: "Napas Dulu - Intervention System ${{ github.ref_name }}"
+          releaseBody: |
+            ## The 4th Wall is Broken.
+            Install `Napas Dulu` MVP into your Windows OS. 
+            Publisher: **KOU & KILOUX**
+            
+            This release contains `.exe` (NSIS) and `.msi` (WiX) installers compiled natively on GitHub infrastructure.
+            Intervention system uses zero network connectivity and zero telemetry.
+          releaseDraft: false
+          prerelease: false
+          args: --target x86_64-pc-windows-msvc
