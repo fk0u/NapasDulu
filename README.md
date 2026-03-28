@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/banner.jpg" alt="Napas Dulu Banner" width="100%">
+</p>
+
 # Napas Dulu 🫁
 
 **Napas Dulu** is a radical, OS-level intervention system designed specifically for developers (or "Fleshware") who suffer from extreme hyperfocus, neglect breaks, and risk their physical health during long coding sessions.
