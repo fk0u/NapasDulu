@@ -34,7 +34,11 @@ pub fn log_morning_diagnostic(
 }
 
 #[tauri::command]
-pub fn attempt_bypass(state: State<'_, DbState>) -> CommandResponse {
+pub fn attempt_bypass(phrase: String, state: State<'_, DbState>) -> CommandResponse {
+    if phrase != "I sacrifice my physical health to bypass" {
+        return CommandResponse { success: false, message: "Invalid override protocol.".into() };
+    }
+
     let conn = state.conn.lock().unwrap();
     let today = Utc::now().format("%Y-%m-%d").to_string();
     let timestamp = Utc::now().to_rfc3339();
@@ -50,7 +54,7 @@ pub fn attempt_bypass(state: State<'_, DbState>) -> CommandResponse {
     }
 
     let _ = conn.execute(
-        "INSERT INTO bypass_logs (timestamp, reason) VALUES (?1, 'Server on Fire')",
+        "INSERT INTO bypass_logs (timestamp, reason) VALUES (?1, 'Protocol Override')",
         [&timestamp],
     );
     CommandResponse { success: true, message: "Bypass granted. Get back to the fire.".into() }
@@ -59,4 +63,42 @@ pub fn attempt_bypass(state: State<'_, DbState>) -> CommandResponse {
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+pub fn get_active_time() -> u64 {
+    crate::activity::ACCUMULATED_ACTIVE_TIME.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[derive(Serialize)]
+pub struct StatsResponse {
+    pub active_time: u64,
+    pub bypass_count: i32,
+    pub sleep_hours: f32,
+    pub exercised: bool,
+}
+
+#[tauri::command]
+pub fn get_stats(state: State<'_, DbState>) -> StatsResponse {
+    let conn = state.conn.lock().unwrap();
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+
+    let bypass_count: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM bypass_logs WHERE timestamp LIKE ?1",
+        [format!("{}%", today)],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    let (sleep_hours, exercised): (f32, bool) = conn.query_row(
+        "SELECT sleep_hours, exercised FROM diagnostics WHERE date_logged = ?1 LIMIT 1",
+        [today],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap_or((0.0, false));
+
+    StatsResponse {
+        active_time: crate::activity::ACCUMULATED_ACTIVE_TIME.load(std::sync::atomic::Ordering::Relaxed),
+        bypass_count,
+        sleep_hours,
+        exercised,
+    }
 }

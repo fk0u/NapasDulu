@@ -63,13 +63,14 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
             std::thread::sleep(std::time::Duration::from_secs(10));
             
             let total_active = ACCUMULATED_ACTIVE_TIME.load(Ordering::Relaxed);
+            
             // Limit = 90 menit (5400 detik)
             if total_active >= 5400 {
-                // Emit event to frontend
                 let _ = app_handle.emit("trigger-lockdown", ());
-                
-                // Return to 0. It stays locked on frontend until user resolves it or resets it.
                 ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed);
+            } else if total_active >= 5340 {
+                // Peringatan di menit ke-89
+                let _ = app_handle.emit("trigger-warning", ());
             }
         }
     });

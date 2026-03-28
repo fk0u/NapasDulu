@@ -28,7 +28,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::log_morning_diagnostic,
             commands::attempt_bypass,
-            commands::quit_app
+            commands::quit_app,
+            commands::get_active_time,
+            commands::get_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
