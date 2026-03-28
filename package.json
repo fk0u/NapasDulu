@@ -1,8 +1,10 @@
 {
-  "name": "napas_dulu_temp",
+  "name": "napas-dulu",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "author": "KOU & KILOUX",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
