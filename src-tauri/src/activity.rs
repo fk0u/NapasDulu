@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, Condvar};
+use lazy_static::lazy_static;
 use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowsHookExW, CallNextHookEx, GetMessageW, WH_KEYBOARD_LL, WH_MOUSE_LL, HHOOK, MSG
 };
@@ -10,6 +12,17 @@ pub static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
 pub static ACCUMULATED_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 pub static DAILY_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 pub static SESSION_LIMIT_SECONDS: AtomicU64 = AtomicU64::new(5400); // Changed to dynamic
+
+pub struct SchedulerState {
+    pub is_running: bool,
+}
+
+lazy_static! {
+    pub static ref SCHEDULER: Arc<(Mutex<SchedulerState>, Condvar)> = Arc::new((
+        Mutex::new(SchedulerState { is_running: true }), 
+        Condvar::new()
+    ));
+}
 
 fn update_activity() {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -88,7 +101,31 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
             }
 
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(10));
+                // SCHEDULER LOGIC (Condvar-based for efficiency and immediate pause/resume)
+                {
+                    let lock_and_cvar = &*SCHEDULER;
+                    let (lock, cvar) = &**lock_and_cvar;
+                    let mut state = lock.lock().unwrap();
+                    
+                    // 1. Jika OFF, thread akan idle secara absolut, CPU usage = 0% di blok wait()
+                    while !state.is_running {
+                        state = cvar.wait(state).unwrap(); 
+                    }
+                    
+                    // 2. Jika ON, kita tunggu 10 detik atau hingga ada trigger stop (notify_all)
+                    let (new_state, _timeout_res) = cvar.wait_timeout(
+                        state, 
+                        std::time::Duration::from_secs(10)
+                    ).unwrap();
+                    
+                    state = new_state;
+
+                    // Jika saat menunggu ternyata state di-ubah menjadi OFF, kita lompati validasi
+                    if !state.is_running {
+                        continue; 
+                    }
+                    // Mutex lock secara otomatis di-drop di akhir blok ini agar tidak memblok command UI
+                }
                 
                 let total_active = ACCUMULATED_ACTIVE_TIME.load(Ordering::Relaxed);
                 let daily_active = DAILY_ACTIVE_TIME.load(Ordering::Relaxed);

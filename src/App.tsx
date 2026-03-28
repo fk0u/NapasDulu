@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, Terminal, Power, User, Activity, Coffee, ActivitySquare, Ban, BarChart3, Clock } from "lucide-react";
+import { ShieldAlert, Terminal, Power, User, Activity, Coffee, ActivitySquare, Ban, BarChart3, Clock, Play, Pause } from "lucide-react";
 import { audioSynth } from "./lib/audio";
 import { fetchWellnessLimits } from "./lib/gemini";
 
@@ -44,6 +44,9 @@ function App() {
   const [breathingPhase, setBreathingPhase] = useState<"inhale"|"hold"|"exhale">("inhale");
   const [bypassInput, setBypassInput] = useState("");
   const [showBypassInput, setShowBypassInput] = useState(false);
+  
+  // Scheduler state
+  const [isSchedulerActive, setIsSchedulerActive] = useState(true);
 
   // Handle initial boot setup
   useEffect(() => {
@@ -237,6 +240,20 @@ function App() {
     } catch (err) {
       console.error(err);
       setAppState("IDLE");
+    }
+  };
+
+  const toggleScheduler = async () => {
+    try {
+      if (isSchedulerActive) {
+        await invoke("stop_scheduler");
+        setIsSchedulerActive(false);
+      } else {
+        await invoke("start_scheduler");
+        setIsSchedulerActive(true);
+      }
+    } catch (err) {
+      console.error("Failed to toggle scheduler", err);
     }
   };
 
@@ -538,6 +555,21 @@ function App() {
                  <BarChart3 className={`w-5 h-5 mb-2 transition-colors ${showHistory ? 'text-system-accent' : 'text-gray-400 group-hover:text-white'}`} />
                  <span className="text-[10px] text-gray-400 group-hover:text-white uppercase tracking-widest mt-1 relative z-10">
                    {showHistory ? 'Close HUD' : 'Digital HUD'}
+                 </span>
+               </button>
+
+               <button 
+                 onClick={toggleScheduler}
+                 className={`group flex flex-col items-center justify-center bg-[#0a0a0a] border ${isSchedulerActive ? 'border-green-900/50 hover:border-green-500/50' : 'border-yellow-900/50 hover:border-yellow-500/50'} rounded-lg p-3 px-6 transition-all active:scale-95 cursor-pointer relative overflow-hidden shadow-[0_0_15px_rgba(0,0,0,0.5)]`}
+               >
+                 <div className="absolute inset-0 bg-system-accent/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                 {isSchedulerActive ? (
+                    <Pause className="w-5 h-5 mb-2 text-green-400" />
+                 ) : (
+                    <Play className="w-5 h-5 mb-2 text-yellow-400" />
+                 )}
+                 <span className="text-[10px] text-gray-400 group-hover:text-white uppercase tracking-widest mt-1 relative z-10">
+                   {isSchedulerActive ? 'Pause' : 'Resume'}
                  </span>
                </button>
 

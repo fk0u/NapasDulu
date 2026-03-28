@@ -32,7 +32,9 @@ pub fn run() {
             commands::get_active_time,
             commands::get_stats,
             commands::get_usage_history,
-            commands::set_dynamic_limit
+            commands::set_dynamic_limit,
+            commands::start_scheduler,
+            commands::stop_scheduler
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

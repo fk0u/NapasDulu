@@ -66,6 +66,33 @@ pub fn quit_app(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+pub fn set_dynamic_limit(limit_seconds: u64) -> Result<(), String> {
+    crate::activity::SESSION_LIMIT_SECONDS.store(limit_seconds, std::sync::atomic::Ordering::Relaxed);
+    println!("Dynamic system limit set to: {} seconds", limit_seconds);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn start_scheduler() {
+    let lock_and_cvar = &*crate::activity::SCHEDULER;
+    let (lock, cvar) = &**lock_and_cvar;
+    let mut state = lock.lock().unwrap();
+    state.is_running = true;
+    cvar.notify_all(); // Wake the sleep loop instantly so it tracks time again
+    println!("Backend Timer Scheduler STARTED.");
+}
+
+#[tauri::command]
+pub fn stop_scheduler() {
+    let lock_and_cvar = &*crate::activity::SCHEDULER;
+    let (lock, cvar) = &**lock_and_cvar;
+    let mut state = lock.lock().unwrap();
+    state.is_running = false;
+    cvar.notify_all(); // Wake the waiting sleep loop so it immediately loops and gets stuck in while !is_running
+    println!("Backend Timer Scheduler PAUSED/STOPPED.");
+}
+
+#[tauri::command]
 pub fn get_active_time() -> u64 {
     crate::activity::ACCUMULATED_ACTIVE_TIME.load(std::sync::atomic::Ordering::Relaxed)
 }
