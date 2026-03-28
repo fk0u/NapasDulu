@@ -5,12 +5,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, AlertTriangle, MessageSquare, Skull, Globe, Info } from "lucide-react";
 import { audioSynth } from "./lib/audio";
-import { fetchWellnessLimits } from "./lib/gemini";
+import { generateHealthProtocol, AIProtocolResponse, evaluateEmergencyExcuse } from "./lib/gemini";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import idLocale from "./locales/id.json";
 import enLocale from "./locales/en.json";
 
-type AppState = "ONBOARDING" | "IDLE" | "DIAGNOSTIC" | "LOCKDOWN";
+type AppState = "ONBOARDING" | "DIAGNOSTIC" | "IDLE" | "LOCKDOWN" | "SETTINGS";
 
 interface UsageDay {
   date: string;
@@ -52,7 +52,10 @@ function App() {
   const [onboardingWeight, setOnboardingWeight] = useState("");
   
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiMessage, setAiMessage] = useState<string | null>(() => localStorage.getItem("aiMessage") || null);
+  const [aiProtocol, setAiProtocol] = useState<AIProtocolResponse | null>(() => {
+    const saved = localStorage.getItem("aiProtocol");
+    return saved ? JSON.parse(saved) : null;
+  });
 
   // Diagnostic form state
   const [bedTime, setBedTime] = useState("");
@@ -176,6 +179,8 @@ function App() {
     let timer: number;
     if (appState === "LOCKDOWN") {
       const appWindow = getCurrentWindow();
+      appWindow.show();
+      appWindow.unminimize();
       appWindow.setFullscreen(true);
       appWindow.setAlwaysOnTop(true);
       appWindow.setDecorations(false);
@@ -186,6 +191,10 @@ function App() {
         }, 1000);
       } else {
         setAppState("IDLE");
+        const appWindow = getCurrentWindow();
+        appWindow.setAlwaysOnTop(false);
+        appWindow.setFullscreen(false);
+        appWindow.setDecorations(true);
       }
     }
     return () => clearInterval(timer);
@@ -193,45 +202,101 @@ function App() {
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onboardingName.trim() || !onboardingAge || !onboardingBp || !onboardingWeight) {
+    if (!onboardingName.trim() || !onboardingAge || !onboardingBp || !onboardingWeight || !bedTime || !wakeTime) {
         showToast(t("toast_onboarding_error"), "error");
         return;
     }
     
     setAiLoading(true);
-    let message = "";
+    let protocolObj: AIProtocolResponse;
     
     try {
-        const wellness = await fetchWellnessLimits(onboardingName, onboardingAge, onboardingBp, onboardingWeight);
-        await invoke("set_dynamic_limit", { limitSeconds: wellness.sessionLimitSeconds });
-        localStorage.setItem("sessionLimitSeconds", wellness.sessionLimitSeconds.toString());
-        message = wellness.message;
+        const protocol = await generateHealthProtocol({
+          name: onboardingName,
+          age: onboardingAge,
+          bloodPressure: onboardingBp,
+          weight: onboardingWeight,
+          bedtime: bedTime,
+          wakeTime: wakeTime
+        }, lang);
+        
+        await invoke("set_dynamic_limit", { limitSeconds: protocol.workDurationSeconds });
+        localStorage.setItem("sessionLimitSeconds", protocol.workDurationSeconds.toString());
+        protocolObj = protocol;
     } catch (err) {
-        message = "ERR: UPLINK FAILED. BIOLOGICAL DATA UNVERIFIED. STANDARD PROTOCOL INITIATED.";
-        showToast(message, "error");
+        protocolObj = {
+            workDurationSeconds: 2700,
+            restDurationSeconds: 300,
+            sarcasticGreeting: "AI Link Failed. Running generic meat-sack protocol.",
+            lockdownMessage: "Get away from the screen.",
+            emergencyBypassWarning: "Are you sure you want to shorten your lifespan?",
+            healthVerdict: "Fail-safe engaged.",
+            uninstallWarningMessage: "Is your future so meaningless that you wish to delete your only life support?",
+            healthTips: ["Stand up occasionally.", "Drink plain water.", "Sleep earlier."],
+            explanationPhysicallyActive: "Typing at 100 WPM is not a sport. Move your leg muscles."
+        };
+        showToast("Gemini AI Uplink Failed. Using defaults.", "error");
     }
 
     localStorage.setItem("userName", onboardingName.trim());
-    localStorage.setItem("aiMessage", message);
+    localStorage.setItem("userAge", onboardingAge);
+    localStorage.setItem("userBp", onboardingBp);
+    localStorage.setItem("userWeight", onboardingWeight);
+    localStorage.setItem("userBed", bedTime);
+    localStorage.setItem("userWake", wakeTime);
+    
+    localStorage.setItem("aiProtocol", JSON.stringify(protocolObj));
     setUserName(onboardingName.trim());
-    setAiMessage(message);
+    setAiProtocol(protocolObj);
+    
+    // Set rest duration globally if backend supports it, for now we will store it and use locally or send to backend
+    setCountdown(protocolObj.restDurationSeconds || 600);
+    
     setAiLoading(false);
     setAppState("DIAGNOSTIC");
   };
 
+  const openSettings = () => {
+    setOnboardingName(localStorage.getItem("userName") || "");
+    setOnboardingAge(localStorage.getItem("userAge") || "");
+    setOnboardingWeight(localStorage.getItem("userWeight") || "");
+    setOnboardingBp(localStorage.getItem("userBp") || "");
+    setBedTime(localStorage.getItem("userBed") || "");
+    setWakeTime(localStorage.getItem("userWake") || "");
+    setAppState("SETTINGS");
+  };
+
+  const handleSettingsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAiLoading(true);
+
+    const protocolObj = await generateHealthProtocol(
+      { name: onboardingName, age: onboardingAge, bloodPressure: onboardingBp, weight: onboardingWeight, bedtime: bedTime, wakeTime: wakeTime },
+      lang
+    );
+
+    localStorage.setItem("userName", onboardingName.trim());
+    localStorage.setItem("userAge", onboardingAge);
+    localStorage.setItem("userBp", onboardingBp);
+    localStorage.setItem("userWeight", onboardingWeight);
+    localStorage.setItem("userBed", bedTime);
+    localStorage.setItem("userWake", wakeTime);
+    
+    localStorage.setItem("aiProtocol", JSON.stringify(protocolObj));
+    setUserName(onboardingName.trim());
+    setAiProtocol(protocolObj);
+    localStorage.setItem("sessionLimitSeconds", protocolObj.workDurationSeconds.toString());
+    await invoke("set_dynamic_limit", { limitSeconds: protocolObj.workDurationSeconds });
+
+    setAiLoading(false);
+    showToast("Profile updated. Protocol Re-calibrated.", "success");
+    setAppState("IDLE");
+  };
+
   const handleDiagnosticSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bedTime || !wakeTime) return;
-
-    const [bH, bM] = bedTime.split(':').map(Number);
-    const [wH, wM] = wakeTime.split(':').map(Number);
-    let bedMins = bH * 60 + bM;
-    let wakeMins = wH * 60 + wM;
-    if (wakeMins <= bedMins) wakeMins += 24 * 60;
-    const computedSleepHours = (wakeMins - bedMins) / 60;
-
     try {
-      const res: any = await invoke("log_morning_diagnostic", { sleepHours: computedSleepHours, wakeHours: 0.0, exercised });
+      const res: any = await invoke("log_morning_diagnostic", { sleepHours: 8.0, wakeHours: 0.0, exercised });
       if (res.success) setAppState("IDLE");
     } catch (err) {
       setAppState("IDLE");
@@ -263,30 +328,64 @@ function App() {
       return;
     }
 
+    // Evaluate using Sarcastic AI
+    setAiLoading(true);
+    let evaluationRes;
     try {
-      const resp: any = await invoke("attempt_bypass", { logs: `EMERGENCY [${emergencyDuration}m]: ${emergencyReason}` });
+      evaluationRes = await evaluateEmergencyExcuse(
+        emergencyReason,
+        parseInt(emergencyDuration) || 5,
+        {
+          name: userName,
+          age: localStorage.getItem("userAge") || "25",
+          bloodPressure: localStorage.getItem("userBp") || "120/80",
+          weight: localStorage.getItem("userWeight") || "70",
+          bedtime: localStorage.getItem("userBed") || "23:00",
+          wakeTime: localStorage.getItem("userWake") || "07:00"
+        },
+        lang
+      );
+    } catch(err) {
+      evaluationRes = {
+        approved: true,
+        aiResponse: "Fallback: AI evaluation failed.",
+        grantedSeconds: parseInt(emergencyDuration) * 60 || 300
+      };
+    }
+    setAiLoading(false);
+
+    if (!evaluationRes.approved || evaluationRes.grantedSeconds <= 0) {
+      showToast(evaluationRes.aiResponse, "error");
+      setEmergencyReason("");
+      setBypassInput("");
+      return; // Denied by AI
+    }
+    
+    // Partially or fully approved
+    showToast(evaluationRes.aiResponse, "warning");
+
+    try {
+      const resp: any = await invoke("attempt_bypass", { logs: `EMERGENCY [${evaluationRes.grantedSeconds}s]: ${emergencyReason} | AI: ${evaluationRes.aiResponse}` });
       if (resp.success) {
-        const durationSecs = parseInt(emergencyDuration) * 60;
-        const currentLimit = parseInt(localStorage.getItem("sessionLimitSeconds") || "5400");
-        const newTempLimit = currentLimit + durationSecs;
-        await invoke("set_dynamic_limit", { limitSeconds: newTempLimit });
+        await invoke("set_dynamic_limit", { limitSeconds: evaluationRes.grantedSeconds });
+        localStorage.setItem("sessionLimitSeconds", evaluationRes.grantedSeconds.toString());
 
         setBypassInput("");
         setEmergencyReason("");
         setShowBypassInput(false);
         setAppState("IDLE");
-        showToast("Protocol accepted.", "success");
       } else {
-        showToast(resp.message, "error");
+        showToast("Backend rejection: " + resp.message, "error");
       }
-    } catch (err) {
-      console.error(err);
+    } catch(err) {
+      showToast("Unknown error executing unlock", "error");
     }
   };
 
   const attemptUninstall = async () => {
-    showToast(t("toast_unlink_warning"), "error");
-    const confirmation = window.confirm(t("toast_unlink_warning"));
+    const warningText = aiProtocol?.uninstallWarningMessage || t("toast_unlink_warning");
+    showToast(warningText, "error");
+    const confirmation = window.confirm(warningText);
     if (confirmation) {
        showToast(t("toast_unlinked"), "error");
        setTimeout(async () => {
@@ -398,6 +497,26 @@ function App() {
                     />
                   </div>
                 </div>
+                <div className="flex gap-4">
+                  <div className="w-1/2 group">
+                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_sleep")}</label>
+                    <input 
+                      type="time" required
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
+                      style={{ colorScheme: 'dark' }}
+                      value={bedTime} onChange={(e) => setBedTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-1/2 group">
+                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_wake")}</label>
+                    <input 
+                      type="time" required
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
+                      style={{ colorScheme: 'dark' }}
+                      value={wakeTime} onChange={(e) => setWakeTime(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <button disabled={aiLoading} type="submit" className="relative w-full mt-4 bg-gradient-to-b from-system-accent to-red-700 text-white font-bold rounded-xl py-4 hover:to-red-600 transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] cursor-pointer uppercase tracking-widest font-mono overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed">
                   <span className="relative z-10 drop-shadow-md">{aiLoading ? "ANALYZING BIOMETRICS..." : t("onboarding_start")}</span>
                   <div className="absolute inset-0 bg-white/20 translate-y-full hover:translate-y-0 transition-transform duration-300 ease-out" />
@@ -422,26 +541,6 @@ function App() {
                 </div>
               </div>
               <form onSubmit={handleDiagnosticSubmit} className="space-y-8">
-                <div className="flex gap-6">
-                  <div className="w-1/2 group">
-                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_sleep")}</label>
-                    <input 
-                      type="time" required
-                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
-                      style={{ colorScheme: 'dark' }}
-                      value={bedTime} onChange={(e) => setBedTime(e.target.value)}
-                    />
-                  </div>
-                  <div className="w-1/2 group">
-                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_wake")}</label>
-                    <input 
-                      type="time" required
-                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
-                      style={{ colorScheme: 'dark' }}
-                      value={wakeTime} onChange={(e) => setWakeTime(e.target.value)}
-                    />
-                  </div>
-                </div>
                 {/* Checkbox with custom tooltip */}
                 <div className="relative group/tooltip">
                   <label className="flex items-center gap-4 p-5 border border-system-border/80 rounded-xl bg-[#030303] cursor-pointer hover:border-system-accent/50 hover:bg-[#0a0a0a] transition-all group relative overflow-hidden">
@@ -462,7 +561,7 @@ function App() {
                     <span className="text-xs font-semibold font-mono text-gray-300 uppercase tracking-widest group-hover:text-white transition-colors">{t("physically_active_today")}</span>
                   </label>
                   <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover/tooltip:opacity-100 transition-opacity bg-system-accent text-black text-[10px] font-mono p-2 rounded w-48 text-center pointer-events-none z-50">
-                    {t("physically_active_tooltip")}
+                    {aiProtocol?.explanationPhysicallyActive || t("physically_active_tooltip")}
                   </div>
                 </div>
 
@@ -477,18 +576,37 @@ function App() {
 
         {appState === "IDLE" && (
           <motion.div key="idle" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center">
-             {aiMessage && (
+             {aiProtocol && (
                <motion.div 
                  initial={{ opacity: 0, y: -20 }} 
                  animate={{ opacity: 1, y: 0 }} 
-                 className="mb-8 p-5 w-[90%] max-w-2xl bg-gradient-to-r from-[#1a0505] to-black border border-system-accent/30 rounded-xl relative overflow-hidden group shadow-[0_0_30px_rgba(239,68,68,0.1)]"
+                 className="mb-8 p-5 w-[90%] max-w-2xl bg-gradient-to-r from-[#1a0505] to-black border border-system-accent/30 rounded-xl relative overflow-hidden group shadow-[0_0_30px_rgba(239,68,68,0.1)] flex flex-col md:flex-row gap-4"
                >
                  <div className="absolute top-0 left-0 w-1 h-full bg-system-accent shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
-                 <h3 className="text-[10px] text-system-accent font-mono tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
-                    <Terminal className="w-3 h-3" />
-                    Neural_Uplink AI Directive
-                 </h3>
-                 <p className="text-xs md:text-sm text-gray-300 font-mono leading-relaxed italic border-l border-system-accent/20 pl-3">"{aiMessage}"</p>
+                 
+                 <div className="flex-1">
+                   <h3 className="text-[10px] text-system-accent font-mono tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                      <Terminal className="w-3 h-3" />
+                      Neural_Uplink AI Directive
+                   </h3>
+                   <p className="text-xs md:text-sm text-gray-300 font-mono leading-relaxed italic border-l border-system-accent/20 pl-3">"{aiProtocol.sarcasticGreeting}"</p>
+                   <p className="text-[10px] text-red-400/80 font-mono mt-3 uppercase">Verdict: {aiProtocol.healthVerdict}</p>
+                 </div>
+                 
+                 {aiProtocol.healthTips && aiProtocol.healthTips.length > 0 && (
+                   <div className="flex-1 border-t md:border-t-0 md:border-l border-system-border/40 pt-4 md:pt-0 md:pl-4">
+                      <h4 className="text-[10px] text-gray-500 font-mono tracking-widest uppercase mb-2">Protocol Directives</h4>
+                      <ul className="space-y-2">
+                        {aiProtocol.healthTips.map((tip, idx) => (
+                          <li key={idx} className="text-[10px] text-gray-400 font-mono leading-relaxed flex items-start gap-2">
+                            <span className="text-system-accent opacity-50">▹</span> {tip}
+                          </li>
+                        ))}
+                      </ul>
+                   </div>
+                 )}
+
+                 <span className="absolute bottom-2 right-4 text-[9px] text-gray-600 font-mono z-10 bg-black/80 px-2 py-1 rounded">Boundaries: {(aiProtocol.workDurationSeconds / 60).toFixed(0)}m WORK / {(aiProtocol.restDurationSeconds / 60).toFixed(0)}m REST</span>
                </motion.div>
              )}
 
@@ -648,11 +766,17 @@ function App() {
                  <span className={`text-xl font-mono ${stats.bypass_count > 0 ? 'text-system-accent' : 'text-white'}`}>{stats.bypass_count}/2</span>
                  <span className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Overrides</span>
                </div>
-                <div className="flex flex-col items-center">
-                  <User className="w-5 h-5 text-gray-500 mb-2" />
-                  <span className="text-lg font-mono text-white tracking-widest truncate max-w-[120px]">{userName}</span>
-                  <span className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Operator</span>
-                </div>
+                 <div className="flex flex-col items-center">
+                   <button 
+                     onClick={openSettings} 
+                     className="group flex flex-col items-center justify-center p-2 rounded-lg transition-all active:scale-95 cursor-pointer relative overflow-hidden"
+                     title="Access Profile & Settings"
+                   >
+                     <User className="w-5 h-5 text-gray-500 mb-2 group-hover:text-system-accent transition-colors" />
+                     <span className="text-lg font-mono text-white tracking-widest truncate max-w-[120px]">{userName}</span>
+                   </button>
+                   <span className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Operator</span>
+                 </div>
                 <div className="flex flex-col items-center">
                   <button onClick={attemptUninstall} className="text-red-900 hover:text-red-500 transition-colors p-2" title="Unlink System">
                     <Skull className="w-5 h-5" />
@@ -663,6 +787,93 @@ function App() {
              <p className="fixed bottom-6 text-[10px] text-gray-700 font-mono uppercase tracking-widest text-center">
                System Dormant. Global hooks engaged.<br/>[Alt+X to Hibernate]
              </p>
+          </motion.div>
+        )}
+
+        {appState === "SETTINGS" && (
+          <motion.div key="settings" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-900/5 to-transparent pointer-events-none" />
+            <div className="p-8 md:p-10 border border-system-border/60 bg-[#070707]/90 backdrop-blur-2xl rounded-3xl w-[90%] max-w-lg shadow-[0_20px_80px_rgba(59,130,246,0.1)] flex flex-col items-center relative overflow-hidden">
+              <div className="bg-blue-900/20 border border-blue-500/30 p-4 rounded-2xl mb-6 shadow-[0_0_30px_rgba(59,130,246,0.15)]">
+                <User className="w-8 h-8 text-blue-500" />
+              </div>
+              <h1 className="text-2xl font-bold mb-2 tracking-widest font-mono text-white text-center">BIOMETRIC CONFIG</h1>
+              <p className="text-gray-500 text-[10px] mb-8 text-center uppercase tracking-[0.2em] w-full border-b border-system-border/50 pb-4">Update biological parameters to recalibrate AI restrictions.</p>
+              
+              <form onSubmit={handleSettingsSubmit} className="w-full flex flex-col gap-5">
+                <div>
+                  <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-1 font-mono">Operator Alias</label>
+                  <input 
+                    type="text" required
+                    className="w-full bg-[#030303] border border-system-border/80 rounded-lg px-4 py-3 outline-none focus:border-blue-500/80 transition-all text-white font-mono text-sm"
+                    value={onboardingName} onChange={(e) => setOnboardingName(e.target.value)}
+                  />
+                </div>
+                <div className="flex gap-4">
+                  <div className="w-1/3">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-1 font-mono">Age</label>
+                    <input 
+                      type="number" required
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-lg px-4 py-3 outline-none focus:border-blue-500/80 transition-all text-white font-mono text-sm text-center"
+                      value={onboardingAge} onChange={(e) => setOnboardingAge(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-1/3">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-1 font-mono">Weight (kg)</label>
+                    <input 
+                      type="number" required
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-lg px-4 py-3 outline-none focus:border-blue-500/80 transition-all text-white font-mono text-sm text-center"
+                      value={onboardingWeight} onChange={(e) => setOnboardingWeight(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-1/3">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-1 font-mono">BP</label>
+                    <input 
+                      type="text" required
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-lg px-4 py-3 outline-none focus:border-blue-500/80 transition-all text-white font-mono text-sm text-center"
+                      value={onboardingBp} onChange={(e) => setOnboardingBp(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <div className="w-1/2">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-1 font-mono">Expected Bedtime</label>
+                    <input 
+                      type="time" required
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-lg px-4 py-3 outline-none focus:border-blue-500/80 transition-all text-white font-mono text-sm"
+                      style={{ colorScheme: 'dark' }}
+                      value={bedTime} onChange={(e) => setBedTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-1/2">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-1 font-mono">Expected Wake Time</label>
+                    <input 
+                      type="time" required
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-lg px-4 py-3 outline-none focus:border-blue-500/80 transition-all text-white font-mono text-sm"
+                      style={{ colorScheme: 'dark' }}
+                      value={wakeTime} onChange={(e) => setWakeTime(e.target.value)}
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex gap-3 mt-4">
+                  <button 
+                    type="button" 
+                    onClick={() => setAppState("IDLE")} 
+                    className="flex-1 bg-transparent border border-gray-800 text-gray-400 rounded-lg py-3 hover:bg-gray-900 transition-colors uppercase tracking-widest font-mono text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={aiLoading} 
+                    type="submit" 
+                    className="flex-[2] relative bg-gradient-to-r from-blue-600 to-blue-800 text-white rounded-lg py-3 hover:from-blue-500 hover:to-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden uppercase tracking-widest font-mono text-xs font-bold"
+                  >
+                    <span className="relative z-10">{aiLoading ? "RE-CALIBRATING..." : "Save & Re-Evaluate"}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           </motion.div>
         )}
 
@@ -691,11 +902,11 @@ function App() {
                   {t("lockdown_subtitle")}
                 </p>
                 <p className="text-gray-400 font-mono text-sm leading-relaxed max-w-xl mx-auto">
-                  {t("lockdown_description")}
+                  {aiProtocol ? aiProtocol.lockdownMessage : t("lockdown_description")}
                 </p>
-                {aiMessage && (
+                {aiProtocol && (
                   <div className="bg-red-900/10 border-l-4 border-red-500 p-4 mt-4 italic text-xs text-red-200 font-serif">
-                    " {aiMessage} "
+                    " {aiProtocol.healthVerdict} "
                   </div>
                 )}
               </div>

@@ -138,7 +138,7 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
                         dwTime: 0,
                     };
                     
-                    if GetLastInputInfo(&mut last_input).is_ok() {
+                    if GetLastInputInfo(&mut last_input).as_bool() {
                         let tick = GetTickCount(); // tick is u32
                         // Handle u32 wrap-around
                         let idle_ms = tick.wrapping_sub(last_input.dwTime);
