@@ -10,6 +10,8 @@ mod commands;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 // Prevent OS-level close operations like Alt+F4
@@ -32,6 +34,7 @@ pub fn run() {
             commands::get_active_time,
             commands::get_stats,
             commands::get_usage_history,
+            commands::get_app_usage_stats,
             commands::set_dynamic_limit,
             commands::start_scheduler,
             commands::stop_scheduler

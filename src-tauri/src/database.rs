@@ -46,5 +46,16 @@ pub fn initialize_db(app: &tauri::App) -> Result<Connection> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS app_usage_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date_logged TEXT NOT NULL,
+            app_name TEXT NOT NULL,
+            active_seconds INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(date_logged, app_name)
+        )",
+        [],
+    )?;
+
     Ok(conn)
 }

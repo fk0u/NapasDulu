@@ -124,9 +124,36 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
                     if !state.is_running {
                         continue; 
                     }
-                    // Mutex lock secara otomatis di-drop di akhir blok ini agar tidak memblok command UI
                 }
+
+                // state is automatically dropped here when the block closes
+
+                let mut active_app_name = String::from("Unknown");
                 
+                // Track Foreground Application Wakatime-style
+                unsafe {
+                    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+                    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_WIN32};
+                    use windows::Win32::Foundation::CloseHandle;
+                    
+                    let hwnd = GetForegroundWindow();
+                    if hwnd.0 != std::ptr::null_mut() {
+                        let mut pid: u32 = 0;
+                        GetWindowThreadProcessId(hwnd, Some(&mut pid as *mut u32));
+                        if pid > 0 {
+                            if let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+                                let mut buffer: [u16; 1024] = [0; 1024];
+                                let mut size = buffer.len() as u32;
+                                if QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, windows::core::PWSTR::from_raw(buffer.as_mut_ptr()), &mut size).is_ok() {
+                                    let path = String::from_utf16_lossy(&buffer[..size as usize]);
+                                    active_app_name = std::path::Path::new(&path).file_name().unwrap_or_default().to_string_lossy().to_string();
+                                }
+                                let _ = CloseHandle(handle);
+                            }
+                        }
+                    }
+                }
+
                 let total_active = ACCUMULATED_ACTIVE_TIME.load(Ordering::Relaxed);
                 let daily_active = DAILY_ACTIVE_TIME.load(Ordering::Relaxed);
                 
@@ -139,6 +166,15 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
                         "UPDATE usage_history SET active_seconds = ?1 WHERE date_logged = ?2",
                         rusqlite::params![daily_active, today],
                     );
+                    
+                    if active_app_name != "Unknown" {
+                        let _ = conn.execute(
+                            "INSERT INTO app_usage_history (date_logged, app_name, active_seconds) 
+                             VALUES (?1, ?2, 10) 
+                             ON CONFLICT(date_logged, app_name) DO UPDATE SET active_seconds = active_seconds + 10",
+                            rusqlite::params![today, active_app_name],
+                        );
+                    }
                 }
                 
                 let limit = SESSION_LIMIT_SECONDS.load(Ordering::Relaxed);

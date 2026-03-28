@@ -4,6 +4,12 @@ use serde::Serialize;
 use tauri::State;
 
 #[derive(Serialize)]
+pub struct AppUsageStat {
+    pub app_name: String,
+    pub active_seconds: u64,
+}
+
+#[derive(Serialize)]
 pub struct CommandResponse {
     pub success: bool,
     pub message: String,
@@ -134,6 +140,31 @@ pub fn get_stats(state: State<'_, DbState>) -> StatsResponse {
 pub struct UsageDay {
     pub date: String,
     pub active_seconds: u64,
+}
+
+#[tauri::command]
+pub fn get_app_usage_stats(state: tauri::State<'_, crate::database::DbState>) -> Result<Vec<AppUsageStat>, String> {
+    let conn = state.conn.lock().unwrap();
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+
+    let mut stmt = conn
+        .prepare("SELECT app_name, active_seconds FROM app_usage_history WHERE date_logged = ?1 ORDER BY active_seconds DESC LIMIT 20")
+        .map_err(|e| e.to_string())?;
+
+    let stat_iter = stmt
+        .query_map([&today], |row| {
+            Ok(AppUsageStat {
+                app_name: row.get(0)?,
+                active_seconds: row.get(1)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut stats = Vec::new();
+    for stat in stat_iter {
+        stats.push(stat.map_err(|e| e.to_string())?);
+    }
+    Ok(stats)
 }
 
 #[tauri::command]
