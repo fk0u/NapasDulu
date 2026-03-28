@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "napas-dulu"
-version = "1.0.0-beta"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "lazy_static",

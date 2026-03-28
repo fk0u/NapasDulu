@@ -1,6 +1,6 @@
 [package]
 name = "napas-dulu"
-version = "1.0.0-beta"
+version = "1.0.0"
 description = "OS-level physical break intervention system"
 authors = ["KOU", "KILOUX"]
 edition = "2021"

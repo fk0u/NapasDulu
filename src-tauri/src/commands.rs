@@ -55,3 +55,8 @@ pub fn attempt_bypass(state: State<'_, DbState>) -> CommandResponse {
     );
     CommandResponse { success: true, message: "Bypass granted. Get back to the fire.".into() }
 }
+
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}

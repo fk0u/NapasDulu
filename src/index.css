@@ -1,6 +1,14 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-system-bg: #0a0a0a;
+  --color-system-text: #e5e5e5;
+  --color-system-accent: #ef4444;
+  --color-system-border: #333333;
+  
+  --font-mono: "Courier New", Courier, monospace;
+  --font-sans: "Inter", sans-serif;
+}
 
 body {
   margin: 0;
@@ -8,9 +16,9 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  background-color: #0a0a0a;
-  color: #e5e5e5;
-  font-family: 'Courier New', Courier, monospace;
+  background-color: var(--color-system-bg);
+  color: var(--color-system-text);
+  font-family: var(--font-sans);
 }
 
 #root {

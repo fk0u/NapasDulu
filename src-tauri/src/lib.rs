@@ -10,6 +10,13 @@ mod commands;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                // Prevent OS-level close operations like Alt+F4
+                api.prevent_close();
+            }
+            _ => {}
+        })
         .setup(|app| {
             let db_conn = initialize_db(&app).expect("Failed to initialize database");
             app.manage(DbState { conn: std::sync::Mutex::new(db_conn) });
@@ -20,7 +27,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::log_morning_diagnostic,
-            commands::attempt_bypass
+            commands::attempt_bypass,
+            commands::quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
