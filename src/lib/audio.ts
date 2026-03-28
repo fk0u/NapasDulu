@@ -93,6 +93,54 @@ class AudioSynth {
             osc.stop(this.ctx.currentTime + 1.2);
         } catch(e) {}
     }
+
+    public playSciFiAlarm() {
+        try {
+            this.init();
+            if(!this.ctx) return;
+            // Create a jarring, high-pitched multi-oscillator sci-fi siren
+            const osc1 = this.ctx.createOscillator();
+            const osc2 = this.ctx.createOscillator();
+            const lfo = this.ctx.createOscillator();
+            const gainNode = this.ctx.createGain();
+
+            // Main tones
+            osc1.type = "sawtooth";
+            osc2.type = "square";
+            
+            // LFO for the frequency modulation (siren warble effect)
+            lfo.type = "sine";
+            lfo.frequency.value = 8; // 8 Hz warble
+
+            const lfoGain = this.ctx.createGain();
+            lfoGain.gain.value = 300; // Pitch variation range
+            lfo.connect(lfoGain);
+            lfoGain.connect(osc1.frequency);
+            lfoGain.connect(osc2.frequency);
+
+            // Starting frequencies
+            osc1.frequency.setValueAtTime(1200, this.ctx.currentTime);
+            osc2.frequency.setValueAtTime(1250, this.ctx.currentTime);
+
+            // Volume envelope
+            gainNode.gain.setValueAtTime(0, this.ctx.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.4, this.ctx.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.4, this.ctx.currentTime + 1.0);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1.5);
+
+            osc1.connect(gainNode);
+            osc2.connect(gainNode);
+            gainNode.connect(this.ctx.destination);
+
+            osc1.start();
+            osc2.start();
+            lfo.start();
+            
+            osc1.stop(this.ctx.currentTime + 1.5);
+            osc2.stop(this.ctx.currentTime + 1.5);
+            lfo.stop(this.ctx.currentTime + 1.5);
+        } catch(e) {}
+    }
 }
 
 export const audioSynth = new AudioSynth();

@@ -3,10 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, AlertTriangle, MessageSquare, Skull } from "lucide-react";
+import { ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, AlertTriangle, MessageSquare, Skull, Globe, Info } from "lucide-react";
 import { audioSynth } from "./lib/audio";
 import { fetchWellnessLimits } from "./lib/gemini";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import idLocale from "./locales/id.json";
+import enLocale from "./locales/en.json";
 
 type AppState = "ONBOARDING" | "IDLE" | "DIAGNOSTIC" | "LOCKDOWN";
 
@@ -20,7 +22,25 @@ interface AppUsageStat {
   active_seconds: number;
 }
 
+interface ToastData {
+  id: number;
+  message: string;
+  type: 'error' | 'success' | 'warning';
+}
+
 function App() {
+  const [lang, setLang] = useState<"ID" | "EN">("ID");
+  const t = (key: keyof typeof idLocale): string => lang === "ID" ? idLocale[key as keyof typeof idLocale] : enLocale[key as keyof typeof enLocale];
+
+  const [toasts, setToasts] = useState<ToastData[]>([]);
+  const showToast = (message: string, type: 'error' | 'success' | 'warning' = 'warning') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    if (type === 'error' || type === 'warning') audioSynth.playSciFiAlarm();
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  };
   const [appState, setAppState] = useState<AppState>("IDLE");
   const [countdown, setCountdown] = useState(600); // 10 minutes
   
@@ -173,7 +193,10 @@ function App() {
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onboardingName.trim() || !onboardingAge || !onboardingBp || !onboardingWeight) return;
+    if (!onboardingName.trim() || !onboardingAge || !onboardingBp || !onboardingWeight) {
+        showToast(t("toast_onboarding_error"), "error");
+        return;
+    }
     
     setAiLoading(true);
     let message = "";
@@ -185,6 +208,7 @@ function App() {
         message = wellness.message;
     } catch (err) {
         message = "ERR: UPLINK FAILED. BIOLOGICAL DATA UNVERIFIED. STANDARD PROTOCOL INITIATED.";
+        showToast(message, "error");
     }
 
     localStorage.setItem("userName", onboardingName.trim());
@@ -229,13 +253,13 @@ function App() {
   };
 
   const attemptBypass = async () => {
-    if (bypassInput !== "I sacrifice my physical health to bypass") {
-      alert("Invalid protocol. Type exactly as requested with matching case.");
+    if (bypassInput !== t("signature_text")) {
+      showToast(t("toast_invalid_signature"), "error");
       return;
     }
     
     if (emergencyReason.trim().length < 10) {
-      alert("Emergency Log required. Explain why you are bypassing health limits (Min 10 characters).");
+      showToast(t("toast_onboarding_error"), "warning");
       return;
     }
 
@@ -251,8 +275,9 @@ function App() {
         setEmergencyReason("");
         setShowBypassInput(false);
         setAppState("IDLE");
+        showToast("Protocol accepted.", "success");
       } else {
-        alert(resp.message);
+        showToast(resp.message, "error");
       }
     } catch (err) {
       console.error(err);
@@ -260,10 +285,13 @@ function App() {
   };
 
   const attemptUninstall = async () => {
-    const confirmation = window.confirm("Neural Uplink Deactivation Protocol Initiated.\n\nApakah anda yakin tidak peduli lagi dengan kesehatan anda dan ingin kembali ke siklus duduk 8 jam tanpa henti?");
+    showToast(t("toast_unlink_warning"), "error");
+    const confirmation = window.confirm(t("toast_unlink_warning"));
     if (confirmation) {
-       const finalWarn = window.confirm("Keangkuhan manusia memang tidak ada batasnya...\nSaya akan menghapus jejak, hapus .msi manual melalui Control Panel.");
-       if (finalWarn) await invoke("quit_app");
+       showToast(t("toast_unlinked"), "error");
+       setTimeout(async () => {
+         await invoke("quit_app");
+       }, 2000);
     }
   };
 
@@ -281,25 +309,56 @@ function App() {
   };
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-[#050505] text-system-text font-sans selection:bg-system-accent/30 selection:text-white">
+    <div className="relative w-full h-full overflow-x-hidden overflow-y-auto bg-[#050505] text-system-text font-sans selection:bg-system-accent/30 selection:text-white pb-10">
+      {/* Toast Notification Container */}
+      <div className="fixed top-6 right-6 z-[9999] flex flex-col gap-3 pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+              className={`pointer-events-auto flex items-start gap-3 p-4 rounded-xl border backdrop-blur-xl shadow-2xl max-w-sm ${
+                toast.type === "error" ? "bg-red-950/80 border-red-500/50 text-red-100" :
+                toast.type === "warning" ? "bg-yellow-950/80 border-yellow-500/50 text-yellow-100" :
+                "bg-blue-950/80 border-blue-500/50 text-blue-100"
+              }`}
+            >
+              <div className="mt-0.5">
+                {toast.type === "error" ? <Skull className="w-4 h-4" /> : toast.type === "warning" ? <AlertTriangle className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+              </div>
+              <p className="text-sm font-mono leading-relaxed">{toast.message}</p>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       {warning && appState === "IDLE" && (
         <motion.div 
           animate={{ opacity: [0, 0.2, 0, 0.4, 0] }}
           transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-          className="pointer-events-none absolute inset-0 bg-red-600/20 mix-blend-screen z-50"
+          className="pointer-events-none fixed inset-0 bg-red-600/20 mix-blend-screen z-[50]"
         />
       )}
+
+      {/* Language Toggle */}
+      <div className="fixed bottom-6 right-6 z-40 bg-black/50 backdrop-blur-md rounded-full border border-gray-800 p-1 flex items-center">
+         <Globe className="w-4 h-4 text-gray-500 ml-2" />
+         <button onClick={() => setLang("EN")} className={`px-3 py-1 text-xs font-mono rounded-full transition-colors ${lang === "EN" ? "bg-system-accent text-black" : "text-gray-400 hover:text-white"}`}>EN</button>
+         <button onClick={() => setLang("ID")} className={`px-3 py-1 text-xs font-mono rounded-full transition-colors ${lang === "ID" ? "bg-system-accent text-black" : "text-gray-400 hover:text-white"}`}>ID</button>
+      </div>
 
       <AnimatePresence mode="wait">
         {appState === "ONBOARDING" && (
           <motion.div key="onboarding" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center relative">
             <div className="absolute inset-0 bg-gradient-to-br from-system-accent/5 to-transparent pointer-events-none" />
-            <div className="p-10 border border-system-border/60 bg-[#070707]/80 backdrop-blur-2xl rounded-3xl w-[480px] shadow-[0_20px_80px_rgba(239,68,68,0.15)] flex flex-col items-center relative overflow-hidden group">
+            <div className="p-8 md:p-10 border border-system-border/60 bg-[#070707]/80 backdrop-blur-2xl rounded-3xl w-[90%] max-w-lg shadow-[0_20px_80px_rgba(239,68,68,0.15)] flex flex-col items-center relative overflow-hidden group">
               <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-system-accent/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
               <div className="bg-system-accent/10 border border-system-accent/20 p-5 rounded-2xl mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
                 <Terminal className="w-12 h-12 text-system-accent drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
               </div>
-              <h1 className="text-3xl font-bold mb-3 tracking-widest font-mono text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 text-center">NEURAL_UPLINK</h1>
+              <h1 className="text-3xl font-bold mb-3 tracking-widest font-mono text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 text-center">{t("onboarding_title")}</h1>
               <p className="text-gray-500 text-xs mb-10 text-center uppercase tracking-[0.2em] w-full">Identify biological operator</p>
               <form onSubmit={handleOnboardingSubmit} className="w-full flex flex-col gap-6">
                 <div>
@@ -307,7 +366,7 @@ function App() {
                     <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 group-focus-within:text-system-accent transition-colors duration-300" />
                     <input 
                       type="text" autoFocus required
-                      placeholder="ENTER DESIGNATION..."
+                      placeholder={t("onboarding_name")}
                       className="w-full bg-[#030303] border border-system-border/80 rounded-xl pl-12 pr-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono placeholder:text-gray-700 placeholder:text-sm"
                       value={onboardingName} onChange={(e) => setOnboardingName(e.target.value)}
                     />
@@ -315,7 +374,7 @@ function App() {
                 </div>
                 <div className="flex gap-4">
                   <div className="w-1/3 group">
-                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Age (YRS)</label>
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_age")}</label>
                     <input 
                       type="number" required placeholder="18"
                       className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-3 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono placeholder:text-gray-700 text-center"
@@ -323,7 +382,7 @@ function App() {
                     />
                   </div>
                   <div className="w-1/3 group">
-                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Weight (KG)</label>
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_weight")}</label>
                     <input 
                       type="number" required placeholder="65"
                       className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-3 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono placeholder:text-gray-700 text-center"
@@ -340,7 +399,7 @@ function App() {
                   </div>
                 </div>
                 <button disabled={aiLoading} type="submit" className="relative w-full mt-4 bg-gradient-to-b from-system-accent to-red-700 text-white font-bold rounded-xl py-4 hover:to-red-600 transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] cursor-pointer uppercase tracking-widest font-mono overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed">
-                  <span className="relative z-10 drop-shadow-md">{aiLoading ? "ANALYZING BIOMETRICS..." : "Initialize Session"}</span>
+                  <span className="relative z-10 drop-shadow-md">{aiLoading ? "ANALYZING BIOMETRICS..." : t("onboarding_start")}</span>
                   <div className="absolute inset-0 bg-white/20 translate-y-full hover:translate-y-0 transition-transform duration-300 ease-out" />
                 </button>
               </form>
@@ -351,21 +410,21 @@ function App() {
         {appState === "DIAGNOSTIC" && (
           <motion.div key="diagnostic" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center relative">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.03)_0%,transparent_100%)] pointer-events-none" />
-            <div className="p-10 border border-system-border/60 bg-[#070707]/80 backdrop-blur-2xl rounded-3xl w-[520px] shadow-[0_20px_80px_rgba(0,0,0,0.8)] relative overflow-hidden group">
+            <div className="p-8 md:p-10 border border-system-border/60 bg-[#070707]/80 backdrop-blur-2xl rounded-3xl w-[90%] max-w-lg shadow-[0_20px_80px_rgba(0,0,0,0.8)] relative overflow-hidden group">
               <div className="absolute bottom-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-system-accent/40 to-transparent" />
               <div className="flex items-center gap-4 mb-10 border-b border-system-border/40 pb-6">
                 <div className="bg-system-accent/10 p-3 rounded-xl border border-system-accent/20">
                   <ActivitySquare className="w-7 h-7 text-system-accent shadow-system-accent drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold tracking-[0.15em] font-mono text-white">SYS_DIAGNOSTICS</h1>
+                  <h1 className="text-xl md:text-2xl font-bold tracking-[0.15em] font-mono text-white">{t("diagnostic_mode")}</h1>
                   <p className="text-gray-500 text-[10px] mt-1 uppercase font-mono tracking-widest">Auth: <span className="text-system-accent/90">[{userName}]</span></p>
                 </div>
               </div>
               <form onSubmit={handleDiagnosticSubmit} className="space-y-8">
                 <div className="flex gap-6">
                   <div className="w-1/2 group">
-                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Bed Time</label>
+                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_sleep")}</label>
                     <input 
                       type="time" required
                       className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
@@ -374,7 +433,7 @@ function App() {
                     />
                   </div>
                   <div className="w-1/2 group">
-                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Wake Time</label>
+                    <label className="block text-[10px] uppercase tracking-[0.2em] text-gray-400 mb-2 font-mono group-focus-within:text-system-accent transition-colors">{t("onboarding_wake")}</label>
                     <input 
                       type="time" required
                       className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-4 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono text-lg"
@@ -383,23 +442,30 @@ function App() {
                     />
                   </div>
                 </div>
-                <label className="flex items-center gap-4 p-5 border border-system-border/80 rounded-xl bg-[#030303] cursor-pointer hover:border-system-accent/50 hover:bg-[#0a0a0a] transition-all group relative overflow-hidden">
-                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-system-accent scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom" />
-                  <div className="relative flex items-center justify-center w-6 h-6 rounded-md border border-gray-600 group-hover:border-system-accent">
-                    <input 
-                      type="checkbox" 
-                      className="absolute opacity-0 w-full h-full cursor-pointer"
-                      checked={exercised} onChange={(e) => setExercised(e.target.checked)}
-                    />
-                    {exercised && (
-                      <motion.div 
-                        initial={{ scale: 0 }} animate={{ scale: 1 }} 
-                        className="w-3 h-3 bg-system-accent rounded-sm shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                {/* Checkbox with custom tooltip */}
+                <div className="relative group/tooltip">
+                  <label className="flex items-center gap-4 p-5 border border-system-border/80 rounded-xl bg-[#030303] cursor-pointer hover:border-system-accent/50 hover:bg-[#0a0a0a] transition-all group relative overflow-hidden">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-system-accent scale-y-0 group-hover:scale-y-100 transition-transform origin-bottom" />
+                    <div className="relative flex items-center justify-center w-6 h-6 rounded-md border border-gray-600 group-hover:border-system-accent">
+                      <input 
+                        type="checkbox" 
+                        className="absolute opacity-0 w-full h-full cursor-pointer"
+                        checked={exercised} onChange={(e) => setExercised(e.target.checked)}
                       />
-                    )}
+                      {exercised && (
+                        <motion.div 
+                          initial={{ scale: 0 }} animate={{ scale: 1 }} 
+                          className="w-3 h-3 bg-system-accent rounded-sm shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                        />
+                      )}
+                    </div>
+                    <span className="text-xs font-semibold font-mono text-gray-300 uppercase tracking-widest group-hover:text-white transition-colors">{t("physically_active_today")}</span>
+                  </label>
+                  <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover/tooltip:opacity-100 transition-opacity bg-system-accent text-black text-[10px] font-mono p-2 rounded w-48 text-center pointer-events-none z-50">
+                    {t("physically_active_tooltip")}
                   </div>
-                  <span className="text-xs font-semibold font-mono text-gray-300 uppercase tracking-widest group-hover:text-white transition-colors">Physically Active Today</span>
-                </label>
+                </div>
+
                 <button type="submit" className="relative w-full mt-4 bg-[#e5e5e5] text-black font-extrabold rounded-xl py-4 hover:bg-white transition-all active:scale-[0.98] shadow-[0_0_15px_rgba(255,255,255,0.2)] cursor-pointer uppercase tracking-[0.2em] font-mono text-xs overflow-hidden group/btn">
                   <span className="relative z-10 group-hover/btn:drop-shadow-[0_0_2px_rgba(0,0,0,0.5)] transition-all">Engage Core System</span>
                   <div className="absolute inset-0 bg-white translate-y-full hover:translate-y-0 transition-transform duration-300 ease-out" />
@@ -415,14 +481,14 @@ function App() {
                <motion.div 
                  initial={{ opacity: 0, y: -20 }} 
                  animate={{ opacity: 1, y: 0 }} 
-                 className="mb-8 p-5 w-[600px] bg-gradient-to-r from-[#1a0505] to-black border border-system-accent/30 rounded-xl relative overflow-hidden group shadow-[0_0_30px_rgba(239,68,68,0.1)]"
+                 className="mb-8 p-5 w-[90%] max-w-2xl bg-gradient-to-r from-[#1a0505] to-black border border-system-accent/30 rounded-xl relative overflow-hidden group shadow-[0_0_30px_rgba(239,68,68,0.1)]"
                >
                  <div className="absolute top-0 left-0 w-1 h-full bg-system-accent shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
                  <h3 className="text-[10px] text-system-accent font-mono tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
                     <Terminal className="w-3 h-3" />
                     Neural_Uplink AI Directive
                  </h3>
-                 <p className="text-xs text-gray-300 font-mono leading-relaxed italic border-l border-system-accent/20 pl-3">"{aiMessage}"</p>
+                 <p className="text-xs md:text-sm text-gray-300 font-mono leading-relaxed italic border-l border-system-accent/20 pl-3">"{aiMessage}"</p>
                </motion.div>
              )}
 
@@ -443,11 +509,11 @@ function App() {
                        <div className="text-[100px] font-mono font-bold leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-600 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
                          {formatTime(activeTime)}
                        </div>
-                       <div className="text-xs tracking-[0.4em] text-system-accent uppercase mt-2 font-mono ml-2">Active Session</div>
+                       <div className="text-xs tracking-[0.4em] text-system-accent uppercase mt-2 font-mono ml-2">{t("active_session")}</div>
                      </div>
                    </div>
                  </div>
-                 <div className="flex gap-4 mb-8">
+                 <div className="flex flex-col md:flex-row gap-4 mb-8 w-[90%] max-w-2xl">
                    <button 
                      onClick={() => setActiveHud("HISTORY")}
                      className="group flex-1 relative overflow-hidden rounded-xl bg-black/60 border border-system-border/50 p-4 hover:border-system-accent/50 transition-all duration-300 shadow-2xl"
@@ -458,8 +524,8 @@ function App() {
                          <ActivitySquare className="w-6 h-6 text-gray-300 group-hover:text-system-accent transition-colors" />
                        </div>
                        <div className="text-center">
-                         <div className="text-sm font-bold tracking-wider text-gray-200 mb-1 group-hover:text-white">TRACK RECORD</div>
-                         <div className="text-[10px] text-gray-500 uppercase tracking-widest font-mono group-hover:text-system-accent/70 transition-colors">Historical Logs</div>
+                         <div className="text-sm font-bold tracking-wider text-gray-200 mb-1 group-hover:text-white">{t("track_record")}</div>
+                         <div className="text-[10px] text-gray-500 uppercase tracking-widest font-mono group-hover:text-system-accent/70 transition-colors">{t("historical_logs")}</div>
                        </div>
                      </div>
                    </button>
@@ -473,8 +539,8 @@ function App() {
                          <PieChart className="w-6 h-6 text-gray-300 group-hover:text-blue-400 transition-colors" />
                        </div>
                        <div className="text-center">
-                         <div className="text-sm font-bold tracking-wider text-gray-200 mb-1 group-hover:text-white">APP USAGE</div>
-                         <div className="text-[10px] text-gray-500 uppercase tracking-widest font-mono group-hover:text-blue-400/70 transition-colors">Digital Analytics</div>
+                         <div className="text-sm font-bold tracking-wider text-gray-200 mb-1 group-hover:text-white">{t("app_usage")}</div>
+                         <div className="text-[10px] text-gray-500 uppercase tracking-widest font-mono group-hover:text-blue-400/70 transition-colors">{t("digital_analytics")}</div>
                        </div>
                      </div>
                    </button>
@@ -484,15 +550,15 @@ function App() {
                <motion.div 
                  initial={{ opacity: 0, y: 20 }} 
                  animate={{ opacity: 1, y: 0 }} 
-                 className="flex flex-col items-center justify-center w-[600px] h-[300px] bg-black/40 border border-system-border/50 rounded-xl p-6 backdrop-blur-md relative"
+                 className="flex flex-col items-center justify-center w-[90%] max-w-2xl h-[300px] bg-black/40 border border-system-border/50 rounded-xl p-6 backdrop-blur-md relative"
                >
                  <div className="absolute top-4 left-6 flex items-center gap-2">
                    <Clock className="w-4 h-4 text-system-accent" />
-                   <h2 className="text-xs font-mono uppercase tracking-widest text-gray-300">Activity History</h2>
+                   <h2 className="text-xs font-mono uppercase tracking-widest text-gray-300">{t("activity_history")}</h2>
                  </div>
                  <div className="w-full h-full flex items-end justify-between mt-8 gap-2">
                     {usageHistory.length === 0 ? (
-                       <p className="text-gray-500 font-mono text-sm w-full text-center mb-10">No history protocol found.</p>
+                       <p className="text-gray-500 font-mono text-sm w-full text-center mb-10">{t("no_history")}</p>
                     ) : (
                        usageHistory.map((day, i) => {
                          const heightPercent = Math.min((day.active_seconds / 43200) * 100, 100);
@@ -508,7 +574,7 @@ function App() {
                                />
                              </div>
                              <span className={`text-[10px] mt-3 font-mono uppercase tracking-widest ${isToday ? 'text-white font-bold' : 'text-gray-500'}`}>
-                               {dateObj.toLocaleDateString('en-US', { weekday: 'short' })}
+                               {dateObj.toLocaleDateString(lang === 'ID' ? 'id-ID' : 'en-US', { weekday: 'short' })}
                              </span>
                            </div>
                          );
@@ -520,11 +586,11 @@ function App() {
                <motion.div 
                  initial={{ opacity: 0, scale: 0.95 }}
                  animate={{ opacity: 1, scale: 1 }}
-                 className="flex flex-col w-[700px] h-[450px] bg-[#0a0a0a] border border-blue-900/40 rounded-2xl relative overflow-hidden shadow-[0_0_50px_rgba(59,130,246,0.1)] p-8"
+                 className="flex flex-col w-[90%] max-w-3xl h-[450px] bg-[#0a0a0a] border border-blue-900/40 rounded-2xl relative overflow-hidden shadow-[0_0_50px_rgba(59,130,246,0.1)] p-8"
                >
                  <div className="absolute top-4 left-6 flex items-center gap-2">
                    <PieChart className="w-4 h-4 text-blue-500" />
-                   <h2 className="text-xs font-mono uppercase tracking-widest text-gray-300">Wakatime Application Tracking</h2>
+                   <h2 className="text-xs font-mono uppercase tracking-widest text-gray-300">{t("wakatime_tracking")}</h2>
                  </div>
                  <div className="w-full h-full mt-4 flex pt-4 text-xs font-mono">
                    {appHistory.length === 0 ? (
@@ -551,7 +617,7 @@ function App() {
                </motion.div>
              )}
 
-             <div className="mt-12 flex items-center justify-between w-[600px] border-t border-system-border/50 pt-8">
+             <div className="mt-12 flex flex-wrap items-center justify-center gap-6 md:gap-10 w-[90%] max-w-2xl border-t border-system-border/50 pt-8">
                <div className="flex flex-col items-center">
                  <Activity className="w-5 h-5 text-gray-500 mb-2" />
                  <span className="text-xl font-mono text-white">{stats.sleep_hours.toFixed(1)}h</span>
@@ -613,19 +679,19 @@ function App() {
               BIOLOGICAL BOUNDARY EXCEEDED
             </div>
             
-            <div className="relative z-10 flex flex-col items-center max-w-2xl px-8 text-center">
+            <div className="relative z-10 flex flex-col items-center max-w-2xl px-8 text-center mt-10 md:mt-0 w-[90%]">
               <ShieldAlert className="w-24 h-24 text-system-accent mb-8 drop-shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse" />
               
-              <h1 className="text-5xl font-mono font-bold text-white mb-6 tracking-tighter uppercase drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-                Step Away From The Screen
+              <h1 className="text-4xl md:text-5xl font-mono font-bold text-white mb-6 tracking-tighter uppercase drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
+                {t("lockdown_title")}
               </h1>
               
               <div className="space-y-4 mb-12">
                 <p className="text-system-accent font-mono text-lg tracking-widest uppercase">
-                  System Halted.
+                  {t("lockdown_subtitle")}
                 </p>
                 <p className="text-gray-400 font-mono text-sm leading-relaxed max-w-xl mx-auto">
-                  Kesehatan neurologis anda mencapai titik rentan. Sistem menuntut anda untuk membasuh muka, melihat sejauh 20 meter ke luar jendela, dan beristirahat.
+                  {t("lockdown_description")}
                 </p>
                 {aiMessage && (
                   <div className="bg-red-900/10 border-l-4 border-red-500 p-4 mt-4 italic text-xs text-red-200 font-serif">
@@ -641,15 +707,15 @@ function App() {
                   className="flex flex-col gap-4 w-full max-w-md bg-black/60 p-6 rounded-lg border border-red-900/50 backdrop-blur-md"
                 >
                   <p className="text-xs text-system-accent font-mono tracking-widest uppercase mb-2 flex items-center justify-center gap-2">
-                    <MessageSquare className="w-4 h-4" /> Log Emergency Override
+                    <MessageSquare className="w-4 h-4" /> {t("emergency_override")}
                   </p>
                   <input 
                     autoFocus
                     type="text"
-                    placeholder="Mengapa anda perlu mengorbankan kesehatan?"
+                    placeholder={t("bypass_reason_placeholder")}
                     value={emergencyReason}
                     onChange={(e) => setEmergencyReason(e.target.value)}
-                    className="bg-black/80 border border-system-border rounded px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors font-mono"
+                    className="bg-black/80 border border-system-border rounded px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors"
                   />
                   <div className="flex gap-4">
                     <input 
@@ -661,13 +727,13 @@ function App() {
                     />
                     <input 
                       type="text"
-                      placeholder="Protocol Signature (I sacrifice my physical health to bypass)"
+                      placeholder={t("signature_placeholder")}
                       value={bypassInput}
                       onChange={(e) => setBypassInput(e.target.value)}
-                      className="flex-1 bg-black/80 border border-system-border rounded px-4 py-3 text-[10px] font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors font-mono"
+                      className="flex-1 bg-black/80 border border-system-border rounded px-4 py-3 text-[10px] font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors"
                     />
                   </div>
-                  <div className="flex gap-2 w-full mt-2">
+                  <div className="flex flex-col md:flex-row gap-2 w-full mt-2">
                     <button 
                       onClick={attemptBypass}
                       className="flex-1 text-[10px] font-mono bg-system-accent/20 text-system-accent tracking-widest uppercase px-4 py-3 rounded hover:bg-system-accent hover:text-black transition-colors"
@@ -687,7 +753,7 @@ function App() {
                   onClick={() => setShowBypassInput(true)} 
                   className="text-xs font-mono text-gray-600 hover:text-system-accent tracking-widest uppercase transition-colors underline decoration-gray-800 underline-offset-4"
                 >
-                   Initiate Emergency Protocol
+                   {t("initiate_emergency")}
                 </button>
               )}
             </div>

@@ -128,6 +128,31 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
 
                 // state is automatically dropped here when the block closes
 
+                let mut is_idle = false;
+                unsafe {
+                    use windows::Win32::System::SystemInformation::GetTickCount;
+                    use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+                    
+                    let mut last_input = LASTINPUTINFO {
+                        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+                        dwTime: 0,
+                    };
+                    
+                    if GetLastInputInfo(&mut last_input).is_ok() {
+                        let tick = GetTickCount(); // tick is u32
+                        // Handle u32 wrap-around
+                        let idle_ms = tick.wrapping_sub(last_input.dwTime);
+                        if idle_ms > 300_000 { // 5 minutes (300,000 milidetik)
+                            is_idle = true;
+                        }
+                    }
+                }
+
+                if is_idle {
+                    println!("User is IDLE (no IO for 5m). Skipping activity tracking.");
+                    continue;
+                }
+
                 let mut active_app_name = String::from("Unknown");
                 
                 // Track Foreground Application Wakatime-style
