@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 pub static LAST_ACTIVITY: AtomicU64 = AtomicU64::new(0);
 pub static ACCUMULATED_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 pub static DAILY_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
+pub static SESSION_LIMIT_SECONDS: AtomicU64 = AtomicU64::new(5400); // Changed to dynamic
 
 fn update_activity() {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -103,12 +104,15 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
                     );
                 }
                 
-                // Limit = 90 menit (5400 detik) for SINGLE SESSION
-                if total_active >= 5400 {
+                let limit = SESSION_LIMIT_SECONDS.load(Ordering::Relaxed);
+                let warning_limit = limit.saturating_sub(60); // Peringatan 1 menit sebelum
+
+                // Limit = Dynamic for SINGLE SESSION
+                if total_active >= limit {
                     let _ = app_handle.emit("trigger-lockdown", ());
                     ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed); // reset only the session
-                } else if total_active >= 5340 {
-                    // Peringatan di menit ke-89
+                } else if total_active >= warning_limit && total_active < limit {
+                    // Peringatan di 60 detik terakhir
                     let _ = app_handle.emit("trigger-warning", ());
                 }
             }

@@ -31,7 +31,8 @@ pub fn run() {
             commands::quit_app,
             commands::get_active_time,
             commands::get_stats,
-            commands::get_usage_history
+            commands::get_usage_history,
+            commands::set_dynamic_limit
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

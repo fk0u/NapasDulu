@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShieldAlert, Terminal, Power, User, Activity, Coffee, ActivitySquare, Ban, BarChart3, Clock } from "lucide-react";
 import { audioSynth } from "./lib/audio";
+import { fetchWellnessLimits } from "./lib/gemini";
 
 type AppState = "ONBOARDING" | "IDLE" | "DIAGNOSTIC" | "LOCKDOWN";
 
@@ -20,6 +21,12 @@ function App() {
   // User Data
   const [userName, setUserName] = useState(() => localStorage.getItem("userName") || "");
   const [onboardingName, setOnboardingName] = useState("");
+  const [onboardingAge, setOnboardingAge] = useState("");
+  const [onboardingBp, setOnboardingBp] = useState("");
+  const [onboardingWeight, setOnboardingWeight] = useState("");
+  
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiMessage, setAiMessage] = useState<string | null>(() => localStorage.getItem("aiMessage") || null);
 
   // Diagnostic form state
   const [bedTime, setBedTime] = useState("");
@@ -37,6 +44,18 @@ function App() {
   const [breathingPhase, setBreathingPhase] = useState<"inhale"|"hold"|"exhale">("inhale");
   const [bypassInput, setBypassInput] = useState("");
   const [showBypassInput, setShowBypassInput] = useState(false);
+
+  // Handle initial boot setup
+  useEffect(() => {
+    if (userName) {
+       setAppState("DIAGNOSTIC");
+       // Sync saved AI limits to backend on app restart
+       const storedLimit = localStorage.getItem("sessionLimitSeconds");
+       if (storedLimit) {
+           invoke("set_dynamic_limit", { limitSeconds: parseInt(storedLimit) }).catch(console.error);
+       }
+    }
+  }, []); // Run ONCE on mount
 
   useEffect(() => {
     if (!userName) {
@@ -158,13 +177,31 @@ function App() {
     };
   }, [appState, countdown]);
 
-  const handleOnboardingSubmit = (e: React.FormEvent) => {
+  const handleOnboardingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (onboardingName.trim()) {
-      localStorage.setItem("userName", onboardingName.trim());
-      setUserName(onboardingName.trim());
-      setAppState("DIAGNOSTIC");
+    if (!onboardingName.trim() || !onboardingAge || !onboardingBp || !onboardingWeight) return;
+    
+    setAiLoading(true);
+    let message = "";
+    
+    try {
+        const wellness = await fetchWellnessLimits(onboardingName, onboardingAge, onboardingBp, onboardingWeight);
+        // Sync generated limit to backend & storage
+        await invoke("set_dynamic_limit", { limitSeconds: wellness.sessionLimitSeconds });
+        localStorage.setItem("sessionLimitSeconds", wellness.sessionLimitSeconds.toString());
+        message = wellness.message;
+    } catch (err) {
+        console.error("AI Error Triggered", err);
+        message = "ERR: UPLINK FAILED. BIOLOGICAL DATA UNVERIFIED. STANDARD PROTOCOL INITIATED.";
     }
+
+    // Move to next phase
+    localStorage.setItem("userName", onboardingName.trim());
+    localStorage.setItem("aiMessage", message);
+    setUserName(onboardingName.trim());
+    setAiMessage(message);
+    setAiLoading(false);
+    setAppState("DIAGNOSTIC");
   };
 
   const handleDiagnosticSubmit = async (e: React.FormEvent) => {
@@ -189,7 +226,7 @@ function App() {
     try {
       const res: any = await invoke("log_morning_diagnostic", {
         sleepHours: computedSleepHours,
-        wakeHours: 0.0, // Deprecated but retained for API compatibility in this update
+        wakeHours: 0.0,
         exercised
       });
       if (res.success) {
@@ -257,7 +294,6 @@ function App() {
       )}
 
       <AnimatePresence mode="wait">
-        {/* ONBOARDING AND DIAGNOSTIC (Kept mostly similar but styled better) */}
         {appState === "ONBOARDING" && (
           <motion.div key="onboarding" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center relative">
             <div className="absolute inset-0 bg-gradient-to-br from-system-accent/5 to-transparent pointer-events-none" />
@@ -282,8 +318,36 @@ function App() {
                     />
                   </div>
                 </div>
-                <button type="submit" className="relative w-full mt-6 bg-gradient-to-b from-system-accent to-red-700 text-white font-bold rounded-xl py-4 hover:to-red-600 transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] cursor-pointer uppercase tracking-widest font-mono overflow-hidden">
-                  <span className="relative z-10 drop-shadow-md">Initialize Session</span>
+                
+                <div className="flex gap-4">
+                  <div className="w-1/3 group">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Age (YRS)</label>
+                    <input 
+                      type="number" required placeholder="18"
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-3 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono placeholder:text-gray-700 text-center"
+                      value={onboardingAge} onChange={(e) => setOnboardingAge(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-1/3 group">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-2 font-mono group-focus-within:text-system-accent transition-colors">Weight (KG)</label>
+                    <input 
+                      type="number" required placeholder="65"
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-3 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono placeholder:text-gray-700 text-center"
+                      value={onboardingWeight} onChange={(e) => setOnboardingWeight(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-1/3 group">
+                    <label className="block text-[9px] uppercase tracking-[0.2em] text-gray-500 mb-2 font-mono group-focus-within:text-system-accent transition-colors">BP (SYS/DIA)</label>
+                    <input 
+                      type="text" required placeholder="120/80"
+                      className="w-full bg-[#030303] border border-system-border/80 rounded-xl px-4 py-3 outline-none focus:border-system-accent/80 focus:shadow-[0_0_20px_rgba(239,68,68,0.1)] transition-all text-white font-mono placeholder:text-gray-700 text-center text-sm"
+                      value={onboardingBp} onChange={(e) => setOnboardingBp(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <button disabled={aiLoading} type="submit" className="relative w-full mt-4 bg-gradient-to-b from-system-accent to-red-700 text-white font-bold rounded-xl py-4 hover:to-red-600 transition-all active:scale-[0.98] shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] cursor-pointer uppercase tracking-widest font-mono overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed">
+                  <span className="relative z-10 drop-shadow-md">{aiLoading ? "ANALYZING BIOMETRICS..." : "Initialize Session"}</span>
                   <div className="absolute inset-0 bg-white/20 translate-y-full hover:translate-y-0 transition-transform duration-300 ease-out" />
                 </button>
               </form>
@@ -363,6 +427,22 @@ function App() {
         {appState === "IDLE" && (
           <motion.div key="idle" {...pageTransition} className="flex flex-col w-full h-full items-center justify-center">
              
+             {/* AI DIRECTIVE HUD */}
+             {aiMessage && (
+               <motion.div 
+                 initial={{ opacity: 0, y: -20 }} 
+                 animate={{ opacity: 1, y: 0 }} 
+                 className="mb-8 p-5 w-[600px] bg-gradient-to-r from-[#1a0505] to-black border border-system-accent/30 rounded-xl relative overflow-hidden group shadow-[0_0_30px_rgba(239,68,68,0.1)]"
+               >
+                 <div className="absolute top-0 left-0 w-1 h-full bg-system-accent shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
+                 <h3 className="text-[10px] text-system-accent font-mono tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                    <Terminal className="w-3 h-3" />
+                    Neural_Uplink AI Directive
+                 </h3>
+                 <p className="text-xs text-gray-300 font-mono leading-relaxed italic border-l border-system-accent/20 pl-3">"{aiMessage}"</p>
+               </motion.div>
+             )}
+
              {/* Dynamic Dashboard HUD */}
              {!showHistory ? (
                <motion.div 
