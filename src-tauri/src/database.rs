@@ -20,6 +20,9 @@ pub fn initialize_db(app: &tauri::App) -> Result<Connection> {
     let db_path = app_data_dir.join("napas_dulu.sqlite");
     let conn = Connection::open(db_path)?;
 
+    // Enable WAL mode for better concurrency and write performance
+    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS diagnostics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +62,11 @@ pub fn initialize_db(app: &tauri::App) -> Result<Connection> {
         )",
         [],
     )?;
+
+    // Performance Indexes (Crucial for when history grows over months)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_app_usage_date ON app_usage_history(date_logged)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_date ON usage_history(date_logged)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_bypass_ts ON bypass_logs(timestamp)", [])?;
 
     Ok(conn)
 }

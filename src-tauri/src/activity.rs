@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
+use chrono::Utc;
 
 pub static ACCUMULATED_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 pub static DAILY_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
@@ -21,28 +22,26 @@ lazy_static! {
 
 pub fn start_activity_monitor(app_handle: AppHandle) {
     std::thread::spawn(move || {
-        use chrono::Utc;
+        let mut current_date = Utc::now().format("%Y-%m-%d").to_string();
         
         // --- INITIAL LOAD FOR TODAY ---
         {
-            let state = app_handle.state::<crate::database::DbState>();
-            let conn = state.conn.lock().unwrap();
-            let today = Utc::now().format("%Y-%m-%d").to_string();
+            if let Ok(conn) = app_handle.state::<crate::database::DbState>().conn.lock() {
+                let _ = conn.execute(
+                    "INSERT OR IGNORE INTO usage_history (date_logged, active_seconds) VALUES (?1, 0)",
+                    [&current_date],
+                );
 
-            let _ = conn.execute(
-                "INSERT OR IGNORE INTO usage_history (date_logged, active_seconds) VALUES (?1, 0)",
-                [&today],
-            );
-
-            if DAILY_ACTIVE_TIME.load(Ordering::Relaxed) == 0 {
-                let saved_secs: u64 = conn
-                    .query_row(
-                        "SELECT active_seconds FROM usage_history WHERE date_logged = ?1",
-                        [&today],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(0);
-                DAILY_ACTIVE_TIME.store(saved_secs, Ordering::Relaxed);
+                if DAILY_ACTIVE_TIME.load(Ordering::Relaxed) == 0 {
+                    let saved_secs: u64 = conn
+                        .query_row(
+                            "SELECT active_seconds FROM usage_history WHERE date_logged = ?1",
+                            [&current_date],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(0);
+                    DAILY_ACTIVE_TIME.store(saved_secs, Ordering::Relaxed);
+                }
             }
         }
 
@@ -54,21 +53,22 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
             {
                 let lock_and_cvar = &*SCHEDULER;
                 let (lock, cvar) = &**lock_and_cvar;
-                let mut state = lock.lock().unwrap();
+                
+                let mut state = match lock.lock() {
+                    Ok(s) => s,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
 
-                // 1. Jika OFF, thread akan idle secara absolut, CPU usage = 0% di blok wait()
                 while !state.is_running {
                     state = cvar.wait(state).unwrap();
                 }
 
-                // 2. Jika ON, kita tunggu 10 detik atau hingga ada trigger stop (notify_all)
                 let (new_state, _timeout_res) = cvar
                     .wait_timeout(state, std::time::Duration::from_secs(10))
                     .unwrap();
 
                 state = new_state;
 
-                // Jika saat menunggu ternyata state di-ubah menjadi OFF, kita lompati validasi
                 if !state.is_running {
                     continue;
                 }
@@ -90,16 +90,30 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
                     let tick = GetTickCount(); 
                     let idle_ms = tick.wrapping_sub(last_input.dwTime);
                     if idle_ms > 300_000 {
-                        // 5 minutes (300,000 milidetik) idle
                         is_idle = true;
                     }
                 }
             }
 
             if is_idle {
-                println!("User is IDLE (no IO for 5m). Resetting session active time.");
                 ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed);
                 continue;
+            }
+
+            // Midnight Crossover Handling (Reset daily stats if day changed)
+            let today = Utc::now().format("%Y-%m-%d").to_string();
+            if today != current_date {
+                println!("Midnight Rollover Detected: {} -> {}", current_date, today);
+                current_date = today.clone();
+                DAILY_ACTIVE_TIME.store(0, Ordering::Relaxed);
+                
+                // Initialize new day in DB
+                if let Ok(conn) = app_handle.state::<crate::database::DbState>().conn.lock() {
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO usage_history (date_logged, active_seconds) VALUES (?1, 0)",
+                        [&current_date],
+                    );
+                }
             }
 
             // User is active! Add 10 seconds.
@@ -108,7 +122,7 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
 
             let mut active_app_name = String::from("Unknown");
 
-            // Track Foreground Application Wakatime-style
+            // Track Foreground Application Wakatime-style safely
             unsafe {
                 use windows::Win32::Foundation::{CloseHandle, HWND};
                 use windows::Win32::System::Threading::{
@@ -156,38 +170,34 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
 
             // --- DATABASE FLUSH EVERY 60 SECONDS (6 loops of 10s) ---
             if loop_counter >= 6 {
-                let state = app_handle.state::<crate::database::DbState>();
-                let conn = state.conn.lock().unwrap();
-                let today = Utc::now().format("%Y-%m-%d").to_string();
-                
-                let _ = conn.execute(
-                    "UPDATE usage_history SET active_seconds = ?1 WHERE date_logged = ?2",
-                    rusqlite::params![daily_active, today],
-                );
-
-                for (app, secs) in &app_usage_buffer {
+                if let Ok(conn) = app_handle.state::<crate::database::DbState>().conn.lock() {
                     let _ = conn.execute(
-                        "INSERT INTO app_usage_history (date_logged, app_name, active_seconds) 
-                         VALUES (?1, ?2, ?3) 
-                         ON CONFLICT(date_logged, app_name) DO UPDATE SET active_seconds = active_seconds + ?3",
-                        rusqlite::params![today, app, secs],
+                        "UPDATE usage_history SET active_seconds = ?1 WHERE date_logged = ?2",
+                        rusqlite::params![daily_active, current_date],
                     );
+
+                    // Batch write app usage
+                    for (app, secs) in &app_usage_buffer {
+                        let _ = conn.execute(
+                            "INSERT INTO app_usage_history (date_logged, app_name, active_seconds) 
+                             VALUES (?1, ?2, ?3) 
+                             ON CONFLICT(date_logged, app_name) DO UPDATE SET active_seconds = active_seconds + ?3",
+                            rusqlite::params![current_date, app, secs],
+                        );
+                    }
                 }
-                
                 app_usage_buffer.clear();
                 loop_counter = 0;
             }
 
             // --- THRESHOLD VALIDATION ---
             let limit = SESSION_LIMIT_SECONDS.load(Ordering::Relaxed);
-            let warning_limit = limit.saturating_sub(60); // Peringatan 1 menit sebelum
+            let warning_limit = limit.saturating_sub(60); 
 
-            // Limit = Dynamic for SINGLE SESSION
             if total_active >= limit {
                 let _ = app_handle.emit("trigger-lockdown", ());
-                ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed); // reset only the session
+                ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed); 
             } else if total_active >= warning_limit && total_active < limit {
-                // Peringatan di 60 detik terakhir
                 let _ = app_handle.emit("trigger-warning", ());
             }
         }
