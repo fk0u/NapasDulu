@@ -102,7 +102,11 @@ function App() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.altKey && e.key.toLowerCase() === 'x') {
-        invoke("quit_app");
+        if (appState !== 'LOCKDOWN') {
+          invoke('quit_app');
+        } else {
+          showToast('Lockdown active. Alt+X disabled.', 'error');
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -126,7 +130,7 @@ function App() {
       unlistenLockdown.then((f: any) => f());
       unlistenWarning.then((f: any) => f());
     };
-  }, [userName, warning]);
+  }, [userName, warning, appState]);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -1051,3 +1055,5 @@ function App() {
 }
 
 export default App;
+
+
