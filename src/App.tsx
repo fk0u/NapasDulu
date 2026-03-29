@@ -3,7 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, AlertTriangle, MessageSquare, Skull, Globe, Info } from "lucide-react";
+import { ActiveSessionHUD } from './components/ActiveSessionHUD';
+import { LockdownSequence } from './components/LockdownSequence';
+import { ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, Skull, Globe, Info, AlertTriangle } from 'lucide-react';
 import { audioSynth } from "./lib/audio";
 import { generateHealthProtocol, AIProtocolResponse, evaluateEmergencyExcuse } from "./lib/gemini";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -704,21 +706,8 @@ function App() {
                  animate={{ opacity: 1, scale: 1 }}
                  className="flex flex-col items-center"
                >
-                 <div className="relative group mb-12">
-                   <div className="absolute inset-0 bg-system-accent opacity-20 blur-3xl group-hover:opacity-30 transition-opacity rounded-full" />
-                   <div className="w-[400px] h-[400px] rounded-full border border-system-border/50 bg-black/40 flex flex-col items-center justify-center relative overflow-hidden backdrop-blur-xl shadow-[0_0_50px_rgba(0,0,0,0.8)]">
-                     <div className="absolute inset-0 border-[4px] border-system-border rounded-full border-t-system-accent opacity-30 animate-spin-slow" />
-                     <div className="absolute inset-2 border-[1px] border-system-border rounded-full border-b-system-accent opacity-20 animate-spin-reverse-slow" />
-                     <div className="absolute inset-4 border-[2px] border-dotted border-white/10 rounded-full" />
-                     <div className="flex flex-col items-center z-10 relative">
-                       <Clock className="w-8 h-8 text-system-accent mb-4 opacity-80 shadow-[0_0_15px_rgba(239,68,68,0.5)]" />
-                       <div className="text-[100px] font-mono font-bold leading-none tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-600 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-                         {formatTime(activeTime)}
-                       </div>
-                       <div className="text-xs tracking-[0.4em] text-system-accent uppercase mt-2 font-mono ml-2">{t("active_session")}</div>
-                     </div>
-                   </div>
-                 </div>
+                 <div className="mb-12"><ActiveSessionHUD timeRemaining={Math.max(0, sessionLimit - activeTime)} totalTime={sessionLimit || 1} t={t} /></div>
+
                  <div className="flex flex-col md:flex-row gap-4 mb-8 w-[90%] max-w-2xl">
                    <button 
                      onClick={() => setActiveHud("HISTORY")}
@@ -966,100 +955,15 @@ function App() {
         )}
 
         {appState === "LOCKDOWN" && (
-          <motion.div key="lockdown" {...pageTransition} className="absolute inset-0 flex flex-col items-center justify-center bg-[#000] z-50 overflow-hidden">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.1),transparent)] animate-pulse" />
-            
-            {/* Immersive HUD Borders */}
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50" />
-            <div className="absolute bottom-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50" />
-            
-            <div className="absolute top-8 left-8 flex items-center gap-3 text-system-accent font-mono text-[10px] tracking-[0.3em] animate-pulse">
-              <AlertTriangle className="w-4 h-4" />
-              BIOLOGICAL BOUNDARY EXCEEDED
-            </div>
-            
-            <div className="relative z-10 flex flex-col items-center max-w-2xl px-8 text-center mt-10 md:mt-0 w-[90%]">
-              <ShieldAlert className="w-24 h-24 text-system-accent mb-8 drop-shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse" />
-              
-              <h1 className="text-4xl md:text-5xl font-mono font-bold text-white mb-6 tracking-tighter uppercase drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-                {t("lockdown_title")}
-              </h1>
-              
-              <div className="space-y-4 mb-12">
-                <p className="text-system-accent font-mono text-lg tracking-widest uppercase">
-                  {t("lockdown_subtitle")}
-                </p>
-                <p className="text-gray-400 font-mono text-sm leading-relaxed max-w-xl mx-auto">
-                  {aiProtocol ? aiProtocol.lockdownMessage : t("lockdown_description")}
-                </p>
-                {aiProtocol && (
-                  <div className="bg-red-900/10 border-l-4 border-red-500 p-4 mt-4 italic text-xs text-red-200 font-serif">
-                    " {aiProtocol.healthVerdict} "
-                  </div>
-                )}
-              </div>
-
-              {showBypassInput ? (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col gap-4 w-full max-w-md bg-black/60 p-6 rounded-lg border border-red-900/50 backdrop-blur-md"
-                >
-                  <p className="text-xs text-system-accent font-mono tracking-widest uppercase mb-2 flex items-center justify-center gap-2">
-                    <MessageSquare className="w-4 h-4" /> {t("emergency_override")}
-                  </p>
-                  <input 
-                    autoFocus
-                    type="text"
-                    placeholder={t("bypass_reason_placeholder")}
-                    value={emergencyReason}
-                    onChange={(e) => setEmergencyReason(e.target.value)}
-                    className="bg-black/80 border border-system-border rounded px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors"
-                  />
-                  <div className="flex gap-4">
-                    <input 
-                      type="number"
-                      placeholder="Mins"
-                      value={emergencyDuration}
-                      onChange={(e) => setEmergencyDuration(e.target.value)}
-                      className="bg-black/80 border border-system-border rounded px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-system-accent w-24 text-center"
-                    />
-                    <input 
-                      type="text"
-                      placeholder={t("signature_placeholder")}
-                      value={bypassInput}
-                      onChange={(e) => setBypassInput(e.target.value)}
-                      className="flex-1 bg-black/80 border border-system-border rounded px-4 py-3 text-[10px] font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors"
-                    />
-                  </div>
-                  <div className="flex flex-col md:flex-row gap-2 w-full mt-2">
-                    <button 
-                      onClick={attemptBypass}
-                      className="flex-1 text-[10px] font-mono bg-system-accent/20 text-system-accent tracking-widest uppercase px-4 py-3 rounded hover:bg-system-accent hover:text-black transition-colors"
-                    >
-                      EXECUTE PROTOCOL
-                    </button>
-                    <button 
-                      onClick={() => setShowBypassInput(false)}
-                      className="text-[10px] font-mono text-gray-500 tracking-widest uppercase px-4 py-3 rounded border border-gray-800 hover:bg-gray-800 transition-colors"
-                    >
-                      CANCEL
-                    </button>
-                  </div>
-                </motion.div>
-              ) : (
-                <button 
-                  onClick={() => setShowBypassInput(true)} 
-                  className="text-xs font-mono text-gray-600 hover:text-system-accent tracking-widest uppercase transition-colors underline decoration-gray-800 underline-offset-4"
-                >
-                   {t("initiate_emergency")}
-                </button>
-              )}
-            </div>
-            
-            <div className="absolute bottom-8 right-8 text-system-accent/30 font-mono text-[10px] tracking-widest opacity-50">
-              NAPASDULU // OVERSEER-V1.2.0
-            </div>
+                    <motion.div key="lockdown" {...pageTransition}>
+            <LockdownSequence 
+              t={t} aiProtocol={aiProtocol} countdown={countdown}
+              showBypassInput={showBypassInput} setShowBypassInput={setShowBypassInput}
+              emergencyReason={emergencyReason} setEmergencyReason={setEmergencyReason}
+              emergencyDuration={emergencyDuration} setEmergencyDuration={setEmergencyDuration}
+              bypassInput={bypassInput} setBypassInput={setBypassInput}
+              attemptBypass={attemptBypass}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -1068,6 +972,9 @@ function App() {
 }
 
 export default App;
+
+
+
 
 
 
