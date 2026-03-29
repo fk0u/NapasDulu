@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, AnimatePresence } from "framer-motion";
 import { ActiveSessionHUD } from './components/ActiveSessionHUD';
 import { LockdownSequence } from './components/LockdownSequence';
+import { MicroBreak } from './components/MicroBreak';
 import { ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, Skull, Globe, Info, AlertTriangle } from 'lucide-react';
 import { audioSynth } from "./lib/audio";
 import { generateHealthProtocol, AIProtocolResponse, evaluateEmergencyExcuse } from "./lib/gemini";
@@ -440,6 +441,7 @@ function App() {
 
   return (
     <div className="relative w-full h-full overflow-x-hidden overflow-y-auto bg-[#050505] text-system-text font-sans selection:bg-system-accent/30 selection:text-white pb-10">
+      <MicroBreak />
       {/* Toast Notification Container */}
       <div className="fixed top-6 right-6 z-[9999] flex flex-col gap-3 pointer-events-none">
         <AnimatePresence>
@@ -972,6 +974,7 @@ function App() {
 }
 
 export default App;
+
 
 
 

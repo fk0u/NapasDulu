@@ -191,6 +191,10 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
             }
 
             // --- THRESHOLD VALIDATION ---
+            // Micro-break every 20 mins (1200 seconds)
+            if total_active > 0 && total_active % 1200 == 0 {
+                let _ = app_handle.emit("trigger-microbreak", ());
+            }
             let limit = SESSION_LIMIT_SECONDS.load(Ordering::Relaxed);
             let warning_limit = limit.saturating_sub(60); 
 
