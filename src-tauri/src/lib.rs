@@ -77,7 +77,8 @@ pub fn run() {
             commands::get_app_usage_stats,
             commands::set_dynamic_limit,
             commands::start_scheduler,
-            commands::stop_scheduler
+            commands::stop_scheduler,
+            commands::simulate_lockdown
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

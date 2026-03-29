@@ -57,5 +57,15 @@
   "emergency_override": "Log Emergency Override",
   "bypass_reason_placeholder": "Why do you sacrifice your health?",
   "signature_placeholder": "Protocol Signature (I sacrifice my physical health to bypass)",
-  "initiate_emergency": "Initiate Emergency Protocol"
+  "initiate_emergency": "Initiate Emergency Protocol",
+  "next_lockdown": "Next Lockdown in",
+  "simulate_lockdown_btn": "Simulate Lockdown",
+  "profile": "Profile",
+  "settings": "Settings",
+  "minutes_remaining": "min remaining",
+  "status_system": "SYSTEM",
+  "advanced_ops": "Advanced Operations",
+  "scanning_operator": "Scanning Operator...",
+  "biological_degradation": "Biological Degradation Level",
+  "focus_efficiency": "Focus Efficiency"
 }

@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Result};
-use std::sync::Mutex;
 use std::fs;
+use std::sync::Mutex;
 use tauri::Manager;
 
 pub struct DbState {
@@ -8,12 +8,15 @@ pub struct DbState {
 }
 
 pub fn initialize_db(app: &tauri::App) -> Result<Connection> {
-    let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("./"));
-    
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("./"));
+
     if !app_data_dir.exists() {
         fs::create_dir_all(&app_data_dir).unwrap();
     }
-    
+
     let db_path = app_data_dir.join("napas_dulu.sqlite");
     let conn = Connection::open(db_path)?;
 

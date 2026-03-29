@@ -57,5 +57,12 @@
   "emergency_override": "Hentikan Darurat",
   "bypass_reason_placeholder": "Mengapa Anda mengorbankan kesehatan?",
   "signature_placeholder": "Tanda tangan (I sacrifice my physical health to bypass)",
-  "initiate_emergency": "Mulai Protokol Darurat"
+  "initiate_emergency": "Mulai Protokol Darurat",
+  "next_lockdown": "Lockdown Berikutnya dalam",
+  "simulate_lockdown_btn": "Simulasi Lockdown",
+  "profile": "Profil",
+  "settings": "Pengaturan",
+  "minutes_remaining": "menit tersisa",
+  "status_system": "SISTEM",
+  "advanced_ops": "Operasi Lanjutan"
 }

@@ -106,6 +106,7 @@ pub fn get_active_time() -> u64 {
 #[derive(Serialize)]
 pub struct StatsResponse {
     pub active_time: u64,
+    pub session_limit: u64,
     pub bypass_count: i32,
     pub sleep_hours: f32,
     pub exercised: bool,
@@ -130,10 +131,18 @@ pub fn get_stats(state: State<'_, DbState>) -> StatsResponse {
 
     StatsResponse {
         active_time: crate::activity::ACCUMULATED_ACTIVE_TIME.load(std::sync::atomic::Ordering::Relaxed),
+        session_limit: crate::activity::SESSION_LIMIT_SECONDS.load(std::sync::atomic::Ordering::Relaxed),
         bypass_count,
         sleep_hours,
         exercised,
     }
+}
+
+#[tauri::command]
+pub fn simulate_lockdown(app: tauri::AppHandle) {
+    use tauri::Emitter;
+    let _ = app.emit("trigger-lockdown", ());
+    println!("Simulation: Force triggering lockdown event.");
 }
 
 #[derive(Serialize)]

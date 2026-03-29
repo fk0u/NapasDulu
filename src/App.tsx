@@ -43,6 +43,7 @@ function App() {
   };
   const [appState, setAppState] = useState<AppState>("IDLE");
   const [countdown, setCountdown] = useState(600); // 10 minutes
+  const [sessionLimit, setSessionLimit] = useState(0);
   
   // User Data
   const [userName, setUserName] = useState(() => localStorage.getItem("userName") || "");
@@ -153,7 +154,9 @@ function App() {
           const res: any = await invoke("get_stats");
           setStats(res);
           setActiveTime(res.active_time);
-          if (res.active_time >= 5340) {
+          setSessionLimit(res.session_limit);
+          
+          if (res.active_time >= res.session_limit - 60) {
               setWarning(true);
           } else {
               setWarning(false);
@@ -303,6 +306,15 @@ function App() {
     }
   };
 
+  const simulateLockdown = async () => {
+    try {
+      await invoke("simulate_lockdown");
+      showToast(lang === 'ID' ? "Simulasi Lockdown Dimulai" : "Lockdown Simulation Initiated", "warning");
+    } catch (err) {
+      showToast("Simulation failed", "error");
+    }
+  };
+
   const toggleScheduler = async () => {
     try {
       if (isSchedulerActive) {
@@ -439,6 +451,65 @@ function App() {
           transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
           className="pointer-events-none fixed inset-0 bg-red-600/20 mix-blend-screen z-[50]"
         />
+      )}
+
+      {/* Top Navigation Bar */}
+      {appState === "IDLE" && (
+        <motion.div 
+          initial={{ y: -50 }} animate={{ y: 0 }}
+          className="fixed top-0 inset-x-0 h-16 bg-black/40 backdrop-blur-xl border-b border-system-border/30 z-[60] flex items-center justify-between px-8"
+        >
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-system-accent animate-pulse shadow-[0_0_8px_rgba(239,68,68,1)]" />
+              <span className="text-[10px] font-mono tracking-widest text-white uppercase">{t("status_system")}: {t("status_active")}</span>
+            </div>
+            <div className="h-4 w-[1px] bg-system-border/50" />
+            <div className="flex flex-col gap-1 group cursor-help min-w-[150px]">
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-gray-500 group-hover:text-system-accent transition-colors" />
+                <span className="text-[10px] font-mono tracking-widest text-gray-400">
+                  {t("next_lockdown")}: <span className="text-white font-bold">{formatTime(Math.max(0, sessionLimit - activeTime))}</span>
+                </span>
+              </div>
+              <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                <motion.div 
+                  className={`h-full ${warning ? 'bg-system-accent' : 'bg-blue-500'}`}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, (activeTime / sessionLimit) * 100)}%` }}
+                  transition={{ duration: 1 }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => showToast(aiProtocol?.healthVerdict || "System Optimal", "success")}
+              className="px-4 py-2 rounded-xl border border-white/5 bg-white/[0.03] hover:bg-white/[0.08] hover:border-system-accent/30 transition-all flex items-center gap-2 group relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-system-accent/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <Activity className="w-3.5 h-3.5 text-system-accent group-hover:scale-110 transition-transform" />
+              <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-gray-400 group-hover:text-white transition-colors relative z-10">{t("profile")}</span>
+            </button>
+            <button 
+              onClick={openSettings}
+              className="px-4 py-2 rounded-xl border border-white/5 bg-white/[0.03] hover:bg-white/[0.08] hover:border-blue-500/30 transition-all flex items-center gap-2 group relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <Terminal className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-400 transition-transform" />
+              <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-gray-400 group-hover:text-white transition-colors relative z-10">{t("settings")}</span>
+            </button>
+            <div className="h-8 w-[1px] bg-white/10 mx-2" />
+            <button 
+              onClick={simulateLockdown}
+              className="px-5 py-2 rounded-xl bg-gradient-to-b from-system-accent to-red-800 text-white hover:from-red-500 hover:to-red-700 transition-all flex items-center gap-2 group shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:shadow-[0_0_30px_rgba(239,68,68,0.4)] active:scale-95"
+            >
+              <Skull className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em]">{t("simulate_lockdown_btn")}</span>
+            </button>
+          </div>
+        </motion.div>
       )}
 
       {/* Language Toggle */}

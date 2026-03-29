@@ -15,6 +15,20 @@ export default {
       fontFamily: {
         mono: ['"Courier New"', 'Courier', 'monospace'],
         sans: ['"Inter"', 'sans-serif'],
+      },
+      keyframes: {
+        scan: {
+          '0%, 100%': { transform: 'translateY(-16px)' },
+          '50%': { transform: 'translateY(260px)' },
+        },
+        'spin-reverse': {
+          from: { transform: 'rotate(360deg)' },
+          to: { transform: 'rotate(0deg)' },
+        }
+      },
+      animation: {
+        scan: 'scan 2.5s ease-in-out infinite',
+        'spin-reverse': 'spin-reverse 1s linear infinite',
       }
     },
   },
