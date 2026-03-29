@@ -147,24 +147,15 @@ function App() {
     }
   }, [appState]);
 
+  // Run heavy DB fetches ONLY on mount or HUD toggle
   useEffect(() => {
-    let interval: number;
-    
     if (appState === "IDLE") {
-      audioSynth.playBootSequence();
-      
-      const fetchStats = async () => {
+      const fetchHeavyStats = async () => {
         try {
           const res: any = await invoke("get_stats");
           setStats(res);
           setActiveTime(res.active_time);
           setSessionLimit(res.session_limit);
-          
-          if (res.active_time >= res.session_limit - 60) {
-              setWarning(true);
-          } else {
-              setWarning(false);
-          }
           
           if (activeHud === "HISTORY") {
               const hist: UsageDay[] = await invoke("get_usage_history");
@@ -175,12 +166,34 @@ function App() {
           }
         } catch(e) {}
       };
-      
-      fetchStats();
-      interval = window.setInterval(fetchStats, 1000);
+      fetchHeavyStats();
+    }
+  }, [appState, activeHud]);
+
+  // Ultra-lightweight 1000ms polling (Memory-only)
+  useEffect(() => {
+    let interval: number;
+    if (appState === "IDLE") {
+      audioSynth.playBootSequence();
+      interval = window.setInterval(async () => {
+        try {
+          const activeSeconds: number = await invoke("get_active_time");
+          setActiveTime(activeSeconds);
+          
+          // Use latest session limit from state
+          setSessionLimit((currentLimit) => {
+            if (activeSeconds >= currentLimit - 60) {
+                setWarning(true);
+            } else {
+                setWarning(false);
+            }
+            return currentLimit;
+          });
+        } catch(e) {}
+      }, 1000);
     }
     return () => clearInterval(interval);
-  }, [appState, activeHud]);
+  }, [appState]);
 
   useEffect(() => {
     let timer: number;
@@ -1055,5 +1068,6 @@ function App() {
 }
 
 export default App;
+
 
 
