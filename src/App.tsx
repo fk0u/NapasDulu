@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'; from "@tauri-apps/api/window";
 import { isEnabled as isAutostartEnabled, enable as enableAutostart, disable as disableAutostart } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence } from "framer-motion";
 import { ActiveSessionHUD } from './components/ActiveSessionHUD';
@@ -1008,6 +1009,7 @@ function App() {
 }
 
 export default App;
+
 
 
 

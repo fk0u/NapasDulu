@@ -1,0 +1,3 @@
+$content = Get-Content "D:\Project\NapasDulu\src\App.tsx" -Raw
+$content = $content -replace "import \{ ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, Skull, Globe, Info \} from 'lucide-react';", "import { ShieldAlert, Terminal, User, Activity, ActivitySquare, BarChart3, Clock, Play, Pause, PieChart, Skull, Globe, Info, AlertTriangle } from 'lucide-react';"
+Set-Content "D:\Project\NapasDulu\src\App.tsx" $content
