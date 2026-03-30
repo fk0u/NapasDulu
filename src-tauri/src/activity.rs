@@ -137,8 +137,10 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
             }
 
             if is_idle {
-                ACCUMULATED_ACTIVE_TIME.store(0, Ordering::Relaxed);
+                let _ = app_handle.emit("afk-status", true);
                 continue;
+            } else {
+                let _ = app_handle.emit("afk-status", false);
             }
 
             // Midnight Crossover Handling (Reset daily stats if day changed)

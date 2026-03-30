@@ -5,6 +5,7 @@ import {
   Clock, 
   Activity, 
   Terminal, 
+  Pause,
   ShieldAlert,
   ChevronRight,
   TrendingUp,
@@ -245,9 +246,17 @@ function App() {
                   </div>
                   <h1 className="text-4xl font-bold tracking-tighter text-white">System Overview</h1>
                 </div>
-                <div className="px-6 py-3 glass rounded-2xl flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  <span className="text-[10px] font-mono font-bold tracking-widest text-gray-400">BIOSYNC_LOCKED</span>
+                <div className="flex gap-4">
+                   {overseer.isAfk && (
+                     <div className="px-6 py-3 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl flex items-center gap-3 animate-pulse">
+                        <Pause className="w-4 h-4 text-yellow-500" />
+                        <span className="text-[10px] font-mono font-bold tracking-widest text-yellow-500 uppercase">Neural_Sync_Suspended</span>
+                     </div>
+                   )}
+                   <div className="px-6 py-3 glass rounded-2xl flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-[10px] font-mono font-bold tracking-widest text-gray-400">BIOSYNC_LOCKED</span>
+                   </div>
                 </div>
               </div>
 

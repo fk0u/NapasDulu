@@ -31,6 +31,7 @@ export function useOverseer(_lang: "ID" | "EN") {
   const [autostart, setAutostart] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [healthScore, setHealthScore] = useState(100);
+  const [isAfk, setIsAfk] = useState(false);
 
   const addEvent = useCallback((message: string, type: FeedEvent['type']) => {
     const newEvent: FeedEvent = {
@@ -97,10 +98,24 @@ export function useOverseer(_lang: "ID" | "EN") {
       overseerVoice.speak(_lang === "ID" ? "Waktunya peregangan mata." : "Time for eye stretches.");
     });
 
+    const unlistenAfk = listen("afk-status", (event: any) => {
+      const isAway = event.payload as boolean;
+      setIsAfk(prev => {
+        if (prev && !isAway) {
+          addEvent("Operator Returned: Resuming Neural Sync", "INFO");
+          overseerVoice.speak(_lang === "ID" ? "Selamat datang kembali, Operator. Melanjutkan sinkronisasi." : "Welcome back, Operator. Resuming synchronization.");
+        } else if (!prev && isAway) {
+          addEvent("Operator AFK: Pausing Bio-Monitoring", "INFO");
+        }
+        return isAway;
+      });
+    });
+
     return () => {
       unlistenLockdown.then(f => f());
       unlistenWarning.then(f => f());
       unlistenBreak.then(f => f());
+      unlistenAfk.then(f => f());
     };
   }, [warning, aiProtocol, addEvent, _lang]);
 
@@ -159,7 +174,7 @@ export function useOverseer(_lang: "ID" | "EN") {
     events, addEvent,
     autostart, setAutostart,
     aiLoading, setAiLoading,
-    healthScore,
+    healthScore, isAfk,
     refreshAnalytics
   };
 }
