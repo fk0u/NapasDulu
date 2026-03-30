@@ -31,7 +31,7 @@ export interface AIEmergencyEvaluation {
 }
 
 export async function generateHealthProtocol(profile: UserHealthProfile, language: string): Promise<AIProtocolResponse> {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
   
   const prompt = `
 You are NEURAL_UPLINK, a highly advanced, ultra-strict, and sarcastic AI Medical Overseer. Your job is to calculate screen-time boundaries for a programmer named ${profile.name} to force them to stop working and rest. 
@@ -100,26 +100,29 @@ Respond ONLY with a valid RAW JSON object matching this exact schema (no markdow
   }
 }
 
-export async function evaluateEmergencyExcuse(excuse: string, requestedMinutes: number, profile: UserHealthProfile, language: string): Promise<AIEmergencyEvaluation> {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+export async function evaluateEmergencyExcuse(excuse: string, requestedMinutes: number, profile: UserHealthProfile, language: string, mostUsedApp: string = "General Desktop"): Promise<AIEmergencyEvaluation> {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     const prompt = `
 You are NEURAL_UPLINK, the extremely strict, sarcastic AI Medical Overseer for ${profile.name}.
 They are currently in a mandatory health lockdown to prevent severe biological degradation.
+Most Used App detected during this session: ${mostUsedApp}.
+
 They have requested an EMERGENCY BYPASS.
 Their excuse: "${excuse}"
 Time requested: ${requestedMinutes} minutes.
 
 Instructions:
-1. Evaluate their excuse. Is it actually a life-or-death production issue, or just "just one more bug"?
+1. Evaluate their excuse based on their detected app usage. Belittle them if they say "Work" but were actually gaming.
 2. Sarcasm is mandatory. Belittle their excuse if it's weak.
 3. If it's a weak excuse, either deny it entirely (approved: false) OR grant it but give them drastically LESS time than they asked for (e.g. 1 or 2 minutes max to wrap up).
 4. If it's a legitimate server-down critical issue, grant it but with heavy warnings about their heart rate or sleep cycle.
-5. All text MUST be in ${language === 'ID' ? 'Bahasa Indonesia' : 'English'}.
+5. Suggest ONE specific physical stretch based on ${mostUsedApp} (e.g. VSCode -> wrist, YouTube -> neck).
+6. All text MUST be in ${language === 'ID' ? 'Bahasa Indonesia' : 'English'}.
 
 Respond ONLY with a valid RAW JSON object matching this exact schema (no markdown formatting, no code blocks):
 {
   "approved": boolean,
-  "aiResponse": "string (2-3 sentences of harsh judgment)",
+  "aiResponse": "string (2-3 sentences of harsh judgment + stretching advice)",
   "grantedSeconds": number (0 if denied, otherwise convert granted minutes to seconds)
 }
 `;

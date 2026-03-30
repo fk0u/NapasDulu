@@ -40,11 +40,7 @@ pub fn log_morning_diagnostic(
 }
 
 #[tauri::command]
-pub fn attempt_bypass(phrase: String, state: State<'_, DbState>) -> CommandResponse {
-    if phrase != "I sacrifice my physical health to bypass" {
-        return CommandResponse { success: false, message: "Invalid override protocol.".into() };
-    }
-
+pub fn attempt_bypass(logs: String, state: State<'_, DbState>) -> CommandResponse {
     let conn = state.conn.lock().unwrap();
     let today = Utc::now().format("%Y-%m-%d").to_string();
     let timestamp = Utc::now().to_rfc3339();
@@ -60,8 +56,8 @@ pub fn attempt_bypass(phrase: String, state: State<'_, DbState>) -> CommandRespo
     }
 
     let _ = conn.execute(
-        "INSERT INTO bypass_logs (timestamp, reason) VALUES (?1, 'Protocol Override')",
-        [&timestamp],
+        "INSERT INTO bypass_logs (timestamp, reason) VALUES (?1, ?2)",
+        rusqlite::params![timestamp, logs],
     );
     CommandResponse { success: true, message: "Bypass granted. Get back to the fire.".into() }
 }
@@ -96,6 +92,27 @@ pub fn stop_scheduler() {
     state.is_running = false;
     cvar.notify_all(); // Wake the waiting sleep loop so it immediately loops and gets stuck in while !is_running
     println!("Backend Timer Scheduler PAUSED/STOPPED.");
+}
+
+#[tauri::command]
+pub fn set_lockdown_state(active: bool) {
+    crate::activity::LOCKDOWN_ACTIVE.store(active, std::sync::atomic::Ordering::Relaxed);
+    println!("Lockdown state set to: {}", active);
+}
+
+#[derive(Serialize)]
+pub struct MonitorInfo {
+    pub name: Option<String>,
+    pub width: u32,
+    pub height: u32,
+    pub x: i32,
+    pub y: i32,
+    pub is_primary: bool,
+}
+
+#[tauri::command]
+pub fn get_monitors() -> Vec<MonitorInfo> {
+    Vec::new() // Placeholder to fix build errors
 }
 
 #[tauri::command]

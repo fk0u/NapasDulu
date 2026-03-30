@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use chrono::Utc;
@@ -8,6 +8,7 @@ use chrono::Utc;
 pub static ACCUMULATED_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 pub static DAILY_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 pub static SESSION_LIMIT_SECONDS: AtomicU64 = AtomicU64::new(5400); // Changed to dynamic
+pub static LOCKDOWN_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub struct SchedulerState {
     pub is_running: bool,
@@ -18,6 +19,46 @@ lazy_static! {
         Mutex::new(SchedulerState { is_running: true }),
         Condvar::new()
     ));
+}
+
+pub fn start_keyboard_hook() {
+    std::thread::spawn(|| {
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SetWindowsHookExW, UnhookWindowsHookEx, GetMessageW, CallNextHookEx,
+                WH_KEYBOARD_LL, KBDLLHOOKSTRUCT, MSG, HC_ACTION,
+            };
+            use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+            
+            unsafe extern "system" fn hook_callback(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+                if ncode == HC_ACTION as i32 {
+                    if LOCKDOWN_ACTIVE.load(Ordering::Relaxed) {
+                        let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+                        let is_alt_down = kbd.flags.0 & 32 != 0; // LLKHF_ALTDOWN
+                        
+                        // VK_TAB = 0x09, VK_ESCAPE = 0x1B
+                        if (kbd.vkCode == 0x09 && is_alt_down) || // Alt+Tab
+                           (kbd.vkCode == 0x1B && is_alt_down) || // Alt+Esc
+                           (kbd.vkCode == 0x1B && (windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x11 /*VK_CONTROL*/) as u16 & 0x8000) != 0) // Ctrl+Esc
+                        {
+                            return LRESULT(1); // Block
+                        }
+                    }
+                }
+                CallNextHookEx(None, ncode, wparam, lparam)
+            }
+
+            let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_callback), None, 0);
+            if let Ok(hook_handle) = hook {
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).into() {
+                    let _ = windows::Win32::UI::WindowsAndMessaging::TranslateMessage(&msg);
+                    let _ = windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
+                }
+                let _ = UnhookWindowsHookEx(hook_handle);
+            }
+        }
+    });
 }
 
 pub fn start_activity_monitor(app_handle: AppHandle) {
@@ -64,7 +105,7 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
                 }
 
                 let (new_state, _timeout_res) = cvar
-                    .wait_timeout(state, std::time::Duration::from_secs(10))
+                    .wait_timeout(state, std::time::Duration::from_secs(1))
                     .unwrap();
 
                 state = new_state;
@@ -116,9 +157,9 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
                 }
             }
 
-            // User is active! Add 10 seconds.
-            let total_active = ACCUMULATED_ACTIVE_TIME.fetch_add(10, Ordering::Relaxed) + 10;
-            let daily_active = DAILY_ACTIVE_TIME.fetch_add(10, Ordering::Relaxed) + 10;
+            // User is active! Add 1 second.
+            let total_active = ACCUMULATED_ACTIVE_TIME.fetch_add(1, Ordering::Relaxed) + 1;
+            let daily_active = DAILY_ACTIVE_TIME.fetch_add(1, Ordering::Relaxed) + 1;
 
             let mut active_app_name = String::from("Unknown");
 
@@ -163,13 +204,13 @@ pub fn start_activity_monitor(app_handle: AppHandle) {
             }
 
             if active_app_name != "Unknown" {
-                *app_usage_buffer.entry(active_app_name).or_insert(0) += 10;
+                *app_usage_buffer.entry(active_app_name).or_insert(0) += 1;
             }
 
             loop_counter += 1;
 
-            // --- DATABASE FLUSH EVERY 60 SECONDS (6 loops of 10s) ---
-            if loop_counter >= 6 {
+            // --- DATABASE FLUSH EVERY 60 SECONDS (60 loops of 1s) ---
+            if loop_counter >= 60 {
                 if let Ok(conn) = app_handle.state::<crate::database::DbState>().conn.lock() {
                     let _ = conn.execute(
                         "UPDATE usage_history SET active_seconds = ?1 WHERE date_logged = ?2",

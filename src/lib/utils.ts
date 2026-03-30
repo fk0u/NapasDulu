@@ -1,56 +1,40 @@
-export function formatProcessName(exeName: string): string {
-  const lowerName = exeName.toLowerCase();
-  
-  const mappings: Record<string, string> = {
-    'code.exe': 'VS Code',
-    'chrome.exe': 'Google Chrome',
-    'msedge.exe': 'Microsoft Edge',
-    'firefox.exe': 'Firefox',
-    'brave.exe': 'Brave Browser',
-    'explorer.exe': 'File Explorer',
-    'spotify.exe': 'Spotify',
-    'discord.exe': 'Discord',
-    'slack.exe': 'Slack',
-    'telegram.exe': 'Telegram',
-    'whatsapp.exe': 'WhatsApp',
-    'obs64.exe': 'OBS Studio',
-    'figma.exe': 'Figma',
-    'idea64.exe': 'IntelliJ IDEA',
-    'webstorm64.exe': 'WebStorm',
-    'studio64.exe': 'Android Studio',
-    'devenv.exe': 'IntelliJ / WebStorm',
-    'postman.exe': 'Postman',
-    'insomnia.exe': 'Insomnia',
-    'datagrip64.exe': 'DataGrip',
-    'dbeaver64.exe': 'DBeaver',
-    'cmd.exe': 'Command Prompt',
-    'powershell.exe': 'PowerShell',
-    'windowsterminal.exe': 'Windows Terminal',
-    'wezterm-gui.exe': 'WezTerm',
-    'alacritty.exe': 'Alacritty',
-    'steam.exe': 'Steam',
-    'vlc.exe': 'VLC Media Player',
-    'zoom.exe': 'Zoom',
-    'teams.exe': 'Microsoft Teams',
-    'notion.exe': 'Notion',
-    'obsidian.exe': 'Notion / Obsidian',
-    'word.exe': 'Microsoft Word',
-    'excel.exe': 'Microsoft Excel',
-    'powerpnt.exe': 'Microsoft PowerPoint',
-    'cursor.exe': 'Cursor IDE',
-    'warp.exe': 'Warp Terminal',
-    'githubdesktop.exe': 'GitHub Desktop',
-    'sublime_text.exe': 'Sublime Text',
-    'phpstorm64.exe': 'PhpStorm',
-  };
+export const formatProcessName = (name: string): string => {
+  if (!name) return "Unknown";
+  // Remove .exe and common path artifacts
+  let clean = name.replace(/\.exe$/i, "").replace(/_/g, " ");
+  // Capitalize first letters
+  return clean.replace(/\b\w/g, (l) => l.toUpperCase());
+};
 
-  // Remove .exe extension if present
-  let cleanName = exeName.replace(/\.exe$/i, '');
-  
-  if (mappings[lowerName]) {
-    return mappings[lowerName];
+export const calculateHealthScore = (stats: {
+  sleep_hours: number;
+  bypass_count: number;
+  active_time: number;
+  session_limit: number;
+}): number => {
+  let score = 100;
+
+  // Sleep Penalty: Expect 7-9 hours. Penalize if < 7.
+  if (stats.sleep_hours < 7) {
+    score -= (7 - stats.sleep_hours) * 10;
   }
-  
-  // Title case the raw name if no mapping found
-  return cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
-}
+
+  // Bypass Penalty: Strict -20 per bypass.
+  score -= stats.bypass_count * 20;
+
+  // Active Session Penalty: If active_time is > 80% of limit, start penalizing.
+  const activeRatio = stats.active_time / (stats.session_limit || 1);
+  if (activeRatio > 0.8) {
+    score -= (activeRatio - 0.8) * 50;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+};
+
+export const getHealthVerdict = (score: number, lang: "ID" | "EN") => {
+  if (score >= 90) return lang === "ID" ? "Kondisi Optimal" : "Optimal Integrity";
+  if (score >= 70) return lang === "ID" ? "Stabil" : "Stable Baseline";
+  if (score >= 50) return lang === "ID" ? "Degradasi Subtle" : "Subtle Degradation";
+  if (score >= 30) return lang === "ID" ? "Resiko Tinggi" : "High Risk Exposure";
+  return lang === "ID" ? "Kritis: Butuh Intervensi" : "Critical: Immediate Intervention";
+};

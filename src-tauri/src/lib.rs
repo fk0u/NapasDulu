@@ -2,7 +2,7 @@ mod database;
 mod activity;
 
 use database::{DbState, initialize_db};
-use activity::start_activity_monitor;
+use activity::{start_activity_monitor, start_keyboard_hook};
 use tauri::{Manager, menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}};
 mod commands;
 
@@ -34,7 +34,7 @@ pub fn run() {
             let _tray = TrayIconBuilder::new()
                 .icon(tray_icon)
                 .menu(&menu)
-                .menu_on_left_click(false)
+                .show_menu_on_left_click(false)
                 .on_menu_event(|app: &tauri::AppHandle, event| match event.id.as_ref() {
                     "quit" => {
                         std::process::exit(0);
@@ -65,6 +65,8 @@ pub fn run() {
             
             // Start Global Hook Activity Monitor
             start_activity_monitor(app.handle().clone());
+            // Start Global Keyboard Hook for Anti-Bypass
+            start_keyboard_hook();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -78,6 +80,8 @@ pub fn run() {
             commands::set_dynamic_limit,
             commands::start_scheduler,
             commands::stop_scheduler,
+            commands::set_lockdown_state,
+            commands::get_monitors,
             commands::simulate_lockdown
         ])
         .run(tauri::generate_context!())
