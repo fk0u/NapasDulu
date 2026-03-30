@@ -7,8 +7,12 @@ use chrono::Utc;
 
 pub static ACCUMULATED_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
 pub static DAILY_ACTIVE_TIME: AtomicU64 = AtomicU64::new(0);
-pub static SESSION_LIMIT_SECONDS: AtomicU64 = AtomicU64::new(5400); // Changed to dynamic
+pub static SESSION_LIMIT_SECONDS: AtomicU64 = AtomicU64::new(5400); 
 pub static LOCKDOWN_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+// v2.0.0 Predictive Metrics
+pub static TOTAL_KEY_ACTIONS: AtomicU64 = AtomicU64::new(0);
+pub static BACKSPACE_DELETES: AtomicU64 = AtomicU64::new(0);
 
 pub struct SchedulerState {
     pub is_running: bool,
@@ -26,14 +30,20 @@ pub fn start_keyboard_hook() {
         unsafe {
             use windows::Win32::UI::WindowsAndMessaging::{
                 SetWindowsHookExW, UnhookWindowsHookEx, GetMessageW, CallNextHookEx,
-                WH_KEYBOARD_LL, KBDLLHOOKSTRUCT, MSG, HC_ACTION,
+                WH_KEYBOARD_LL, HC_ACTION, KBDLLHOOKSTRUCT, MSG,
             };
             use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
             
             unsafe extern "system" fn hook_callback(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 if ncode == HC_ACTION as i32 {
+                    // Track actions for v2.0.0 Predictive Score
+                    TOTAL_KEY_ACTIONS.fetch_add(1, Ordering::Relaxed);
+                    let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+                    if kbd.vkCode == 0x08 || kbd.vkCode == 0x2E { // VK_BACK or VK_DELETE
+                        BACKSPACE_DELETES.fetch_add(1, Ordering::Relaxed);
+                    }
+
                     if LOCKDOWN_ACTIVE.load(Ordering::Relaxed) {
-                        let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
                         let is_alt_down = kbd.flags.0 & 32 != 0; // LLKHF_ALTDOWN
                         
                         // VK_TAB = 0x09, VK_ESCAPE = 0x1B

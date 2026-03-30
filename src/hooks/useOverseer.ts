@@ -5,7 +5,7 @@ import { isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { audioSynth } from "../lib/audio";
 import { overseerVoice } from "../lib/voice";
 import { formatProcessName, calculateHealthScore } from "../lib/utils";
-import { AIProtocolResponse } from "../lib/gemini";
+import { AIProtocolResponse, generateHealthProtocol } from "../lib/gemini";
 import { FeedEvent } from "../components/ActivityFeed";
 
 export type AppState = "ONBOARDING" | "DIAGNOSTIC" | "IDLE" | "LOCKDOWN" | "SETTINGS" | "HISTORY" | "ANALYTICS";
@@ -32,6 +32,7 @@ export function useOverseer(_lang: "ID" | "EN") {
   const [aiLoading, setAiLoading] = useState(false);
   const [healthScore, setHealthScore] = useState(100);
   const [isAfk, setIsAfk] = useState(false);
+  const [predictiveScore, setPredictiveScore] = useState({ apm: 0, frustrationLevel: 0 });
 
   const addEvent = useCallback((message: string, type: FeedEvent['type']) => {
     const newEvent: FeedEvent = {
@@ -73,14 +74,40 @@ export function useOverseer(_lang: "ID" | "EN") {
 
   // Global Event Listeners
   useEffect(() => {
-    const unlistenLockdown = listen("trigger-lockdown", () => {
+    const unlistenLockdown = listen("trigger-lockdown", async () => {
       setAppState("LOCKDOWN");
       setCountdown(aiProtocol?.restDurationSeconds || 600);
       invoke("set_lockdown_state", { active: true });
       addEvent("Bio-Integrity Failure: Initiating Lockdown", "SECURITY");
       
-      if (aiProtocol) {
-        overseerVoice.speak(aiProtocol.lockdownMessage, true);
+      // Update protocol with predictive context right before lockdown for maximum impact
+      try {
+        const apps: any[] = await invoke("get_app_usage_stats");
+        const mostUsed = apps[0]?.app_name || "General Desktop";
+        const score: any = await invoke("get_predictive_score");
+        
+        const profile = {
+          name: localStorage.getItem("userName") || "Operator",
+          age: localStorage.getItem("userAge") || "18",
+          bloodPressure: localStorage.getItem("userBP") || "120/80",
+          weight: localStorage.getItem("userWeight") || "70",
+          bedtime: localStorage.getItem("userBedtime") || "23:00",
+          wakeTime: localStorage.getItem("userWakeTime") || "06:00"
+        };
+
+        const newProtocol = await generateHealthProtocol(profile, _lang, {
+          apm: score.apm,
+          frustrationLevel: score.frustration_level,
+          mostUsedApp: mostUsed
+        });
+        
+        setAiProtocol(newProtocol);
+        localStorage.setItem("aiProtocol", JSON.stringify(newProtocol));
+        overseerVoice.speak(newProtocol.lockdownMessage, true);
+      } catch (e) {
+        if (aiProtocol) {
+          overseerVoice.speak(aiProtocol.lockdownMessage, true);
+        }
       }
     });
 
@@ -119,7 +146,7 @@ export function useOverseer(_lang: "ID" | "EN") {
     };
   }, [warning, aiProtocol, addEvent, _lang]);
 
-  // Polling for Active Time
+  // Polling for Active Time & Predictive Metrics
   useEffect(() => {
     let interval: number;
     if (appState !== "LOCKDOWN" && appState !== "ONBOARDING") {
@@ -128,6 +155,12 @@ export function useOverseer(_lang: "ID" | "EN") {
           const time: number = await invoke("get_active_time");
           setActiveTime(time);
           
+          // Poll predictive score every 10 seconds for UI updates
+          if (time % 10 === 0) {
+            const score: any = await invoke("get_predictive_score");
+            setPredictiveScore({ apm: score.apm, frustrationLevel: score.frustration_level });
+          }
+
           // Dynamic stats refresh every minute
           if (time > 0 && time % 60 === 0) {
             const res: any = await invoke("get_stats");
@@ -175,6 +208,7 @@ export function useOverseer(_lang: "ID" | "EN") {
     autostart, setAutostart,
     aiLoading, setAiLoading,
     healthScore, isAfk,
-    refreshAnalytics
+    refreshAnalytics,
+    predictiveScore
   };
 }

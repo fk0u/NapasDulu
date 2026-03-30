@@ -2,6 +2,7 @@ use crate::database::DbState;
 use chrono::Utc;
 use serde::Serialize;
 use tauri::State;
+use std::sync::atomic::Ordering;
 
 #[derive(Serialize)]
 pub struct AppUsageStat {
@@ -13,6 +14,31 @@ pub struct AppUsageStat {
 pub struct CommandResponse {
     pub success: bool,
     pub message: String,
+}
+
+#[derive(Serialize)]
+pub struct PredictiveScore {
+    pub apm: u64,
+    pub frustration_level: u64,
+}
+
+#[tauri::command]
+pub fn get_predictive_score() -> PredictiveScore {
+    let actions = crate::activity::TOTAL_KEY_ACTIONS.swap(0, Ordering::Relaxed);
+    let frustrated = crate::activity::BACKSPACE_DELETES.swap(0, Ordering::Relaxed);
+    
+    // Calculate frustration (0-100) based on ratio of backspaces to total actions
+    // Assume 15% backspaces is "frustrated"
+    let frustration = if actions > 0 {
+        ((frustrated as f64 / actions as f64) * 100.0 * 6.6).min(100.0) as u64
+    } else {
+        0
+    };
+
+    PredictiveScore {
+        apm: actions, // Actions in the last interval (1 min if polled every min)
+        frustration_level: frustration,
+    }
 }
 
 #[tauri::command]
@@ -69,7 +95,7 @@ pub fn quit_app(app: tauri::AppHandle) {
 
 #[tauri::command]
 pub fn set_dynamic_limit(limit_seconds: u64) -> Result<(), String> {
-    crate::activity::SESSION_LIMIT_SECONDS.store(limit_seconds, std::sync::atomic::Ordering::Relaxed);
+    crate::activity::SESSION_LIMIT_SECONDS.store(limit_seconds, Ordering::Relaxed);
     println!("Dynamic system limit set to: {} seconds", limit_seconds);
     Ok(())
 }
@@ -96,7 +122,7 @@ pub fn stop_scheduler() {
 
 #[tauri::command]
 pub fn set_lockdown_state(active: bool) {
-    crate::activity::LOCKDOWN_ACTIVE.store(active, std::sync::atomic::Ordering::Relaxed);
+    crate::activity::LOCKDOWN_ACTIVE.store(active, Ordering::Relaxed);
     println!("Lockdown state set to: {}", active);
 }
 
@@ -117,7 +143,7 @@ pub fn get_monitors() -> Vec<MonitorInfo> {
 
 #[tauri::command]
 pub fn get_active_time() -> u64 {
-    crate::activity::ACCUMULATED_ACTIVE_TIME.load(std::sync::atomic::Ordering::Relaxed)
+    crate::activity::ACCUMULATED_ACTIVE_TIME.load(Ordering::Relaxed)
 }
 
 #[derive(Serialize)]
@@ -147,8 +173,8 @@ pub fn get_stats(state: State<'_, DbState>) -> StatsResponse {
     ).unwrap_or((0.0, false));
 
     StatsResponse {
-        active_time: crate::activity::ACCUMULATED_ACTIVE_TIME.load(std::sync::atomic::Ordering::Relaxed),
-        session_limit: crate::activity::SESSION_LIMIT_SECONDS.load(std::sync::atomic::Ordering::Relaxed),
+        active_time: crate::activity::ACCUMULATED_ACTIVE_TIME.load(Ordering::Relaxed),
+        session_limit: crate::activity::SESSION_LIMIT_SECONDS.load(Ordering::Relaxed),
         bypass_count,
         sleep_hours,
         exercised,

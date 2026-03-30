@@ -12,6 +12,12 @@ export interface UserHealthProfile {
   wakeTime: string;
 }
 
+export interface PredictiveMetrics {
+    apm: number;
+    frustrationLevel: number; // 0-100 based on backspace/delete frequency
+    mostUsedApp: string;
+}
+
 export interface AIProtocolResponse {
   workDurationSeconds: number; // How long they are allowed to work before screen locks
   restDurationSeconds: number; // How long the lockdown lasts
@@ -30,9 +36,16 @@ export interface AIEmergencyEvaluation {
   grantedSeconds: number; // How much time they are actually allowed (might be less than requested if excuse is weak)
 }
 
-export async function generateHealthProtocol(profile: UserHealthProfile, language: string): Promise<AIProtocolResponse> {
+export async function generateHealthProtocol(profile: UserHealthProfile, language: string, metrics?: PredictiveMetrics): Promise<AIProtocolResponse> {
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
   
+  const predictiveContext = metrics ? `
+Current Predictive Metrics:
+- Most Used App: ${metrics.mostUsedApp}
+- Actions Per Minute (APM): ${metrics.apm}
+- User Frustration Level: ${metrics.frustrationLevel}/100 (Detected via low-level kernel input patterns)
+` : "";
+
   const prompt = `
 You are NEURAL_UPLINK, a highly advanced, ultra-strict, and sarcastic AI Medical Overseer. Your job is to calculate screen-time boundaries for a programmer named ${profile.name} to force them to stop working and rest. 
 
@@ -43,12 +56,13 @@ User's Biological Data:
 - Weight: ${profile.weight} kg
 - Target Bedtime: ${profile.bedtime}
 - Target Wake Time: ${profile.wakeTime}
+${predictiveContext}
 
 Instructions:
-1. Analyze their biological data (e.g. if their BP is high or age is older, give them SHORTER work limits and LONGER rests).
+1. Analyze their biological data AND predictive metrics. If frustration is high or APM is dropping, they are burning out. Give them SHORTER work limits and LONGER rests.
 2. Generally, work duration should be between 25 and 90 minutes (converted to SECONDS).
 3. Generally, rest duration should be between 3 and 10 minutes (converted to SECONDS).
-4. Your tone must be strict, sarcastic, slightly condescending but ultimately caring about their survival. You treat them like a fragile biological organism that can't be trusted to unplug on its own.
+4. Your tone must be strict, sarcastic, slightly condescending but ultimately caring about their survival. You treat them like a fragile biological organism that can't be trusted to unplug on its own. Mention their most used app in the verdict if provided.
 5. All message outputs MUST BE in the following language: ${language === 'ID' ? 'Bahasa Indonesia' : 'English'}. Include scientific/medical jargon.
 
 Respond ONLY with a valid RAW JSON object matching this exact schema (no markdown formatting, no code blocks):
@@ -58,7 +72,7 @@ Respond ONLY with a valid RAW JSON object matching this exact schema (no markdow
   "sarcasticGreeting": "string (short 1 sentence)",
   "lockdownMessage": "string (1-2 sentences)",
   "emergencyBypassWarning": "string (1-2 sentences)",
-  "healthVerdict": "string (paragraph explaining why you gave them these limits based on their stats)",
+  "healthVerdict": "string (paragraph explaining why you gave them these limits based on their stats and current app usage)",
   "uninstallWarningMessage": "string (A heavy guilt-trip asking if they truly want to abandon their health)",
   "healthTips": ["string 1", "string 2", "string 3"],
   "explanationPhysicallyActive": "string (Sarcastic definition of physical activity for a programmer)"

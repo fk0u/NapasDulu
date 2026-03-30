@@ -1,145 +1,214 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, AlertTriangle, MessageSquare } from 'lucide-react';
-import { AIProtocolResponse } from '../lib/gemini';
+import { Clock, ShieldAlert, Ghost, Activity, Brain, Zap } from 'lucide-react';
+import { invoke } from "@tauri-apps/api/core";
+import { AIEmergencyEvaluation, evaluateEmergencyExcuse, AIProtocolResponse, UserHealthProfile } from '../lib/gemini';
+import { overseerVoice } from '../lib/voice';
 
 interface LockdownSequenceProps {
-  t: (key: any) => string;
-  aiProtocol: AIProtocolResponse | null;
   countdown: number;
-  showBypassInput: boolean;
-  setShowBypassInput: (v: boolean) => void;
-  emergencyReason: string;
-  setEmergencyReason: (v: string) => void;
-  emergencyDuration: string;
-  setEmergencyDuration: (v: string) => void;
-  bypassInput: string;
-  setBypassInput: (v: string) => void;
-  attemptBypass: () => void;
+  onBypassSuccess: () => void;
+  aiProtocol: AIProtocolResponse | null;
+  language: "ID" | "EN";
+  mostUsedApp: string;
+  predictiveScore?: { apm: number; frustrationLevel: number };
 }
 
-export const LockdownSequence: React.FC<LockdownSequenceProps> = ({
-  t, aiProtocol, countdown, showBypassInput, setShowBypassInput,
-  emergencyReason, setEmergencyReason, emergencyDuration, setEmergencyDuration,
-  bypassInput, setBypassInput, attemptBypass
+export const LockdownSequence: React.FC<LockdownSequenceProps> = ({ 
+  countdown, 
+  onBypassSuccess, 
+  aiProtocol, 
+  language, 
+  mostUsedApp,
+  predictiveScore 
 }) => {
-  const [sequenceStep, setSequenceStep] = useState(0);
+  const [showExcuse, setShowExcuse] = useState(false);
+  const [excuse, setExcuse] = useState("");
+  const [requestMins, setRequestMins] = useState(5);
+  const [evaluation, setEvaluation] = useState<AIEmergencyEvaluation | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    // Quick immersive boot up sequence
-    const timers = [
-      setTimeout(() => setSequenceStep(1), 1500), 
-      setTimeout(() => setSequenceStep(2), 3500), 
-    ];
-    return () => timers.forEach(clearTimeout);
-  }, []);
+  const handleRequestBypass = async () => {
+    setLoading(true);
+    const profile: UserHealthProfile = {
+      name: localStorage.getItem("userName") || "Operator",
+      age: localStorage.getItem("userAge") || "18",
+      bloodPressure: localStorage.getItem("userBP") || "120/80",
+      weight: localStorage.getItem("userWeight") || "70",
+      bedtime: localStorage.getItem("userBedtime") || "23:00",
+      wakeTime: localStorage.getItem("userWakeTime") || "06:00"
+    };
+
+    const res = await evaluateEmergencyExcuse(excuse, requestMins, profile, language, mostUsedApp);
+    setEvaluation(res);
+    setLoading(false);
+    
+    overseerVoice.speak(res.aiResponse, true);
+
+    if (res.approved && res.grantedSeconds > 0) {
+      await invoke("attempt_bypass", { logs: `Approved: ${excuse}` });
+      setTimeout(() => onBypassSuccess(), 3000);
+    }
+  };
 
   const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#000] z-50 overflow-hidden select-none">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(239,68,68,0.1),transparent)] animate-pulse" />
-      <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50" />
-      <div className="absolute bottom-0 left-0 w-full h-2 bg-gradient-to-r from-transparent via-red-500 to-transparent opacity-50" />
-      
-      <div className="absolute top-8 left-8 flex items-center gap-3 text-system-accent font-mono text-[10px] tracking-[0.3em] animate-pulse">
-        <AlertTriangle className="w-4 h-4" />
-        BIOLOGICAL BOUNDARY EXCEEDED
-      </div>
-      
-      <div className="absolute top-8 right-8 text-system-accent/80 font-mono text-2xl tracking-[0.3em]">
-        {formatTime(countdown)}
+    <div className="fixed inset-0 z-[9999] bg-black flex flex-col items-center justify-center p-12 overflow-hidden select-none">
+      {/* Background Glitch Effect */}
+      <div className="absolute inset-0 opacity-10 pointer-events-none">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-medical-blue/20 via-transparent to-transparent animate-pulse" />
+        <div className="h-full w-full bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20" />
       </div>
 
-      <AnimatePresence mode="wait">
-        {sequenceStep === 0 && (
-          <motion.div key="step0" initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}} exit={{opacity: 0}} className="text-system-accent flex flex-col items-center space-y-6">
-            <div className="relative w-24 h-24 flex items-center justify-center">
-              <div className="absolute inset-0 border-t-2 border-l-2 border-system-accent animate-spin-slow rounded-tl-xl" />
-              <div className="absolute inset-0 border-b-2 border-r-2 border-system-accent animate-spin-reverse-slow rounded-br-xl" />
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-4xl space-y-12 text-center relative z-10"
+      >
+        <div className="flex justify-center gap-8 mb-4">
+            <motion.div 
+                animate={{ rotate: [0, 10, -10, 0] }}
+                transition={{ repeat: Infinity, duration: 4 }}
+                className="p-6 rounded-3xl bg-red-500/10 border border-red-500/20"
+            >
+                <ShieldAlert className="w-16 h-16 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)]" />
+            </motion.div>
+        </div>
+
+        <div className="space-y-4">
+          <h1 className="text-6xl font-black tracking-tighter text-white uppercase italic italic-glitch">
+            System Lockdown
+          </h1>
+          <p className="text-xs font-mono text-gray-500 uppercase tracking-[0.5em]">
+            Neural Integrity Failure • Biological Recovery in Progress
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="glass-card p-8 rounded-[2rem] border-white/5 flex flex-col items-center justify-center space-y-2">
+                <Clock className="w-6 h-6 text-medical-blue mb-2" />
+                <span className="text-4xl font-black text-white font-mono tracking-widest">{formatTime(countdown)}</span>
+                <span className="text-[10px] text-gray-500 uppercase font-mono tracking-widest">Recovery Time Remaining</span>
             </div>
-            <p className="text-2xl tracking-[0.3em] animate-pulse uppercase font-mono">SCANNING OPERATOR...</p>
-          </motion.div>
-        )}
 
-        {sequenceStep === 1 && (
-          <motion.div key="step1" initial={{opacity: 0, scale: 1.1}} animate={{opacity: 1, scale: 1}} exit={{opacity: 0}} className="text-orange-500 flex flex-col items-center space-y-4">
-            <ShieldAlert className="w-20 h-20 animate-bounce drop-shadow-[0_0_20px_rgba(249,115,22,0.8)]" />
-            <p className="text-xl tracking-[0.2em] uppercase font-mono">Analyzing Vitals... calculating degradation...</p>
-          </motion.div>
-        )}
+            <div className="glass-card p-8 rounded-[2rem] border-white/5 flex flex-col items-center justify-center space-y-2">
+                <Brain className="w-6 h-6 text-purple-500 mb-2" />
+                <span className="text-4xl font-black text-white font-mono tracking-widest">{predictiveScore?.frustrationLevel || 0}%</span>
+                <span className="text-[10px] text-gray-500 uppercase font-mono tracking-widest">Detected Frustration</span>
+            </div>
 
-        {sequenceStep >= 2 && (
-          <motion.div key="step2" initial={{opacity: 0, y: 30}} animate={{opacity: 1, y: 0}} className="relative z-10 flex flex-col items-center max-w-2xl px-8 text-center mt-10 md:mt-0 w-[90%]">
-            <ShieldAlert className="w-24 h-24 text-system-accent mb-8 drop-shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse" />
-            
-            <h1 className="text-4xl md:text-5xl font-mono font-bold text-white mb-6 tracking-tighter uppercase drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-              {t("lockdown_title")}
-            </h1>
-            
-            <div className="space-y-4 mb-12">
-              <p className="text-system-accent font-mono text-lg tracking-widest uppercase">
-                {t("lockdown_subtitle")}
-              </p>
-              <p className="text-gray-400 font-mono text-sm leading-relaxed max-w-xl mx-auto">
-                {aiProtocol ? aiProtocol.lockdownMessage : t("lockdown_description")}
-              </p>
-              {aiProtocol && (
-                <div className="bg-red-900/10 border-l-4 border-red-500 p-4 mt-4 italic text-xs text-red-200 font-serif">
-                  " {aiProtocol.healthVerdict} "
+            <div className="glass-card p-8 rounded-[2rem] border-white/5 flex flex-col items-center justify-center space-y-2">
+                <Zap className="w-6 h-6 text-yellow-500 mb-2" />
+                <span className="text-4xl font-black text-white font-mono tracking-widest">{predictiveScore?.apm || 0}</span>
+                <span className="text-[10px] text-gray-500 uppercase font-mono tracking-widest">Actions Last Interval</span>
+            </div>
+        </div>
+
+        <div className="max-w-2xl mx-auto space-y-6">
+            <p className="text-xl text-gray-300 font-medium leading-relaxed italic">
+                "{aiProtocol?.lockdownMessage || "Step away from the machine. Now."}"
+            </p>
+            <div className="flex items-center justify-center gap-4 text-xs font-mono text-medical-blue/60 uppercase tracking-widest">
+                <Activity className="w-4 h-4" />
+                <span>Primary Context: {mostUsedApp}</span>
+            </div>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {!showExcuse ? (
+            <motion.button
+              key="request-btn"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              onClick={() => setShowExcuse(true)}
+              className="text-[10px] font-mono text-gray-600 hover:text-red-500 uppercase tracking-[0.4em] transition-colors flex items-center gap-2 mx-auto"
+            >
+              <Ghost className="w-4 h-4" />
+              Request Emergency Neural Uplink Bypass
+            </motion.button>
+          ) : (
+            <motion.div
+              key="excuse-form"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="max-w-md mx-auto space-y-6 p-8 glass-card rounded-[2.5rem] border-red-500/20"
+            >
+              {!evaluation ? (
+                <>
+                  <div className="space-y-4">
+                    <p className="text-[10px] font-mono text-red-400 uppercase tracking-widest">State your logical justification:</p>
+                    <textarea 
+                      value={excuse}
+                      onChange={(e) => setExcuse(e.target.value)}
+                      placeholder="Why do you deserve more screen time, biological entity?"
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white placeholder:text-gray-700 focus:outline-none focus:border-medical-blue transition-colors min-h-[100px]"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-gray-500 uppercase">Extension: {requestMins}m</span>
+                    <input 
+                      type="range" min="1" max="15" value={requestMins}
+                      onChange={(e) => setRequestMins(parseInt(e.target.value))}
+                      className="w-1/2 accent-medical-blue"
+                    />
+                  </div>
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => setShowExcuse(false)}
+                      className="flex-1 py-4 rounded-xl border border-white/10 text-[10px] font-mono text-gray-500 hover:bg-white/5 uppercase tracking-widest"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={handleRequestBypass}
+                      disabled={loading || excuse.length < 5}
+                      className="flex-1 py-4 rounded-xl bg-red-500 text-black font-black text-[10px] font-mono uppercase tracking-widest hover:brightness-110 disabled:opacity-50 transition-all"
+                    >
+                      {loading ? "EVALUATING..." : "SUBMIT FOR JUDGMENT"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-6 text-left">
+                  <div className={`p-4 rounded-2xl border ${evaluation.approved ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                    <p className="text-[10px] font-mono uppercase tracking-widest mb-1">
+                      Verdict: {evaluation.approved ? 'Conditional Access Granted' : 'Access Denied'}
+                    </p>
+                    <p className="text-sm font-medium leading-relaxed italic">"{evaluation.aiResponse}"</p>
+                  </div>
+                  {evaluation.approved && evaluation.grantedSeconds > 0 && (
+                    <div className="text-center animate-pulse">
+                        <p className="text-[10px] font-mono text-medical-blue uppercase tracking-[0.3em]">Resuming system in 3s...</p>
+                    </div>
+                  )}
+                  {!evaluation.approved && (
+                    <button 
+                        onClick={() => { setEvaluation(null); setExcuse(""); }}
+                        className="w-full py-4 rounded-xl border border-white/10 text-[10px] font-mono text-gray-500 uppercase tracking-widest"
+                    >
+                        Try a better excuse
+                    </button>
+                  )}
                 </div>
               )}
-            </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
-            {showBypassInput ? (
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col gap-4 w-full max-w-md bg-black/60 p-6 rounded-lg border border-red-900/50 backdrop-blur-md"
-              >
-                <p className="text-xs text-system-accent font-mono tracking-widest uppercase mb-2 flex items-center justify-center gap-2">
-                  <MessageSquare className="w-4 h-4" /> {t("emergency_override")}
-                </p>
-                <input 
-                  autoFocus type="text" placeholder={t("bypass_reason_placeholder")}
-                  value={emergencyReason} onChange={(e) => setEmergencyReason(e.target.value)}
-                  className="bg-black/80 border border-system-border rounded px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors"
-                />
-                <div className="flex gap-4">
-                  <input 
-                    type="number" placeholder="Mins"
-                    value={emergencyDuration} onChange={(e) => setEmergencyDuration(e.target.value)}
-                    className="bg-black/80 border border-system-border rounded px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-system-accent w-24 text-center"
-                  />
-                  <input 
-                    type="text" placeholder={t("signature_placeholder")}
-                    value={bypassInput} onChange={(e) => setBypassInput(e.target.value)}
-                    className="flex-1 bg-black/80 border border-system-border rounded px-4 py-3 text-[10px] font-mono text-white focus:outline-none focus:border-system-accent w-full transition-colors"
-                  />
-                </div>
-                <div className="flex flex-col md:flex-row gap-2 w-full mt-2">
-                  <button onClick={attemptBypass} className="flex-1 text-[10px] font-mono bg-system-accent/20 text-system-accent tracking-widest uppercase px-4 py-3 rounded hover:bg-system-accent hover:text-black transition-colors shadow-[0_0_10px_rgba(239,68,68,0.2)]">
-                    EXECUTE PROTOCOL
-                  </button>
-                  <button onClick={() => setShowBypassInput(false)} className="text-[10px] font-mono text-gray-500 tracking-widest uppercase px-4 py-3 rounded border border-gray-800 hover:bg-gray-800 transition-colors">
-                    CANCEL
-                  </button>
-                </div>
-              </motion.div>
-            ) : (
-              <button onClick={() => setShowBypassInput(true)} className="text-xs font-mono text-gray-600 hover:text-system-accent tracking-widest uppercase transition-colors underline decoration-gray-800 underline-offset-4">
-                 {t("initiate_emergency")}
-              </button>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <div className="absolute bottom-8 right-8 text-system-accent/30 font-mono text-[10px] tracking-widest opacity-50">
-        NAPASDULU // OVERSEER-V1.2.0
+      {/* Decorative Sidebar Elements */}
+      <div className="absolute top-0 bottom-0 left-0 w-1 bg-medical-blue/20" />
+      <div className="absolute top-0 bottom-0 right-0 w-1 bg-medical-blue/20" />
+      
+      <div className="absolute bottom-12 left-12 flex items-center gap-4 opacity-30">
+        <div className="h-px w-12 bg-white/20" />
+        <span className="text-[8px] font-mono text-white uppercase tracking-[0.5em]">KILOUX CORE v2.0.0</span>
       </div>
     </div>
   );

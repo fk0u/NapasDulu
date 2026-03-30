@@ -1,12 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  Clock, 
-  Activity, 
   Terminal, 
   Pause,
-  ShieldAlert,
   ChevronRight,
   TrendingUp,
   Zap,
@@ -28,24 +25,14 @@ import { Settings } from './views/Settings';
 import { useOverseer } from './hooks/useOverseer';
 import { getHealthVerdict } from './lib/utils';
 import { overseerVoice } from './lib/voice';
-import { generateHealthProtocol, evaluateEmergencyExcuse } from "./lib/gemini";
-
-import idLocale from "./locales/id.json";
-import enLocale from "./locales/en.json";
+import { generateHealthProtocol } from "./lib/gemini";
 
 function App() {
   const [lang, setLang] = useState<"ID" | "EN">("ID");
-  const t = (key: keyof typeof idLocale): string => lang === "ID" ? idLocale[key as keyof typeof idLocale] : enLocale[key as keyof typeof enLocale];
 
   const overseer = useOverseer(lang);
   
-  // UI states for bypass
-  const [showBypassInput, setShowBypassInput] = useState(false);
-  const [emergencyReason, setEmergencyReason] = useState("");
-  const [emergencyDuration, setEmergencyDuration] = useState("10");
-  const [bypassInput, setBypassInput] = useState("");
-
-  // Onboarding form state
+  // UI states for onboarding
   const [onboardingName, setOnboardingName] = useState("");
   const [onboardingAge, setOnboardingAge] = useState("");
   const [onboardingBp, setOnboardingBp] = useState("");
@@ -94,63 +81,6 @@ function App() {
     }
     overseer.setAiLoading(false);
   };
-
-  const attemptBypass = async () => {
-    if (bypassInput !== t("signature_text")) {
-      overseerVoice.speak(lang === "ID" ? "Tanda tangan tidak valid." : "Invalid signature.");
-      return;
-    }
-    
-    overseer.setAiLoading(true);
-    try {
-      const evaluation = await evaluateEmergencyExcuse(
-        emergencyReason,
-        parseInt(emergencyDuration) || 5,
-        {
-          name: localStorage.getItem("userName") || "Operator",
-          age: localStorage.getItem("userAge") || "25",
-          bloodPressure: localStorage.getItem("userBp") || "120/80",
-          weight: localStorage.getItem("userWeight") || "70",
-          bedtime: localStorage.getItem("userBed") || "23:00",
-          wakeTime: localStorage.getItem("userWake") || "07:00"
-        },
-        lang,
-        overseer.appHistory[0]?.app_name || "Unknown"
-      );
-
-      overseerVoice.speak(evaluation.aiResponse, true);
-
-      if (evaluation.approved && evaluation.grantedSeconds > 0) {
-        await invoke("attempt_bypass", { logs: `BYPASS [${evaluation.grantedSeconds}s]: ${emergencyReason} | AI: ${evaluation.aiResponse}` });
-        await invoke("set_dynamic_limit", { limitSeconds: evaluation.grantedSeconds });
-        await invoke("set_lockdown_state", { active: false });
-        
-        overseer.addEvent("Emergency Bypass Authorized by AI", "SECURITY");
-        overseer.setAppState("IDLE");
-        setBypassInput("");
-        setEmergencyReason("");
-        setShowBypassInput(false);
-      }
-    } catch(err) {
-      console.error(err);
-    }
-    overseer.setAiLoading(false);
-  };
-
-  // Phase 2: Multi-Monitor Shadow Windows
-  useEffect(() => {
-    if (overseer.appState === "LOCKDOWN") {
-      const coverOtherMonitors = async () => {
-        try {
-          const monitors: any[] = await invoke("get_monitors");
-          if (monitors.length > 1) {
-            overseer.addEvent(`Detected ${monitors.length} displays. Neural shield extended.`, "SECURITY");
-          }
-        } catch(e) {}
-      };
-      coverOtherMonitors();
-    }
-  }, [overseer.appState, overseer]);
 
   return (
     <div className="flex h-screen bg-system-bg text-system-text font-sans overflow-hidden text-sm">
@@ -278,9 +208,9 @@ function App() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <StatCard label="Sleep" value={overseer.stats.sleep_hours.toFixed(1)} subValue="HRS" icon={Clock} color="medical" />
-                    <StatCard label="Bypasses" value={overseer.stats.bypass_count} subValue="/ 2" icon={ShieldAlert} color={overseer.stats.bypass_count > 0 ? 'accent' : 'default'} />
-                    <StatCard label="Health" value={overseer.healthScore} subValue="PTS" icon={Activity} color={overseer.healthScore < 50 ? 'accent' : 'medical'} />
+                    <StatCard label="APM" value={overseer.predictiveScore.apm} subValue="ACT" icon={Zap} color="medical" />
+                    <StatCard label="Frustration" value={overseer.predictiveScore.frustrationLevel} subValue="%" icon={Zap} color={overseer.predictiveScore.frustrationLevel > 40 ? 'accent' : 'default'} />
+                    <StatCard label="Health" value={overseer.healthScore} subValue="PTS" icon={Zap} color={overseer.healthScore < 50 ? 'accent' : 'medical'} />
                   </div>
                 </div>
 
@@ -372,18 +302,12 @@ function App() {
           {overseer.appState === "LOCKDOWN" && (
             <motion.div key="lockdown" {...pageTransition} className="fixed inset-0 z-[1000] bg-black">
               <LockdownSequence 
-                t={t} 
-                aiProtocol={overseer.aiProtocol} 
                 countdown={overseer.countdown}
-                showBypassInput={showBypassInput} 
-                setShowBypassInput={setShowBypassInput}
-                emergencyReason={emergencyReason} 
-                setEmergencyReason={setEmergencyReason}
-                emergencyDuration={emergencyDuration} 
-                setEmergencyDuration={setEmergencyDuration}
-                bypassInput={bypassInput} 
-                setBypassInput={setBypassInput}
-                attemptBypass={attemptBypass}
+                onBypassSuccess={() => overseer.setAppState("IDLE")}
+                aiProtocol={overseer.aiProtocol}
+                language={lang}
+                mostUsedApp={overseer.appHistory[0]?.app_name || "General Desktop"}
+                predictiveScore={overseer.predictiveScore}
               />
             </motion.div>
           )}
