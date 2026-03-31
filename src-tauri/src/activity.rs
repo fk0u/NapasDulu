@@ -45,11 +45,15 @@ pub fn start_keyboard_hook() {
 
                     if LOCKDOWN_ACTIVE.load(Ordering::Relaxed) {
                         let is_alt_down = kbd.flags.0 & 32 != 0; // LLKHF_ALTDOWN
+                        let is_ctrl_down = (windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x11 /*VK_CONTROL*/) as u16 & 0x8000) != 0;
+                        let is_shift_down = (windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x10 /*VK_SHIFT*/) as u16 & 0x8000) != 0;
                         
-                        // VK_TAB = 0x09, VK_ESCAPE = 0x1B
+                        // VK_TAB = 0x09, VK_ESCAPE = 0x1B, LWIN = 0x5B, RWIN = 0x5C
                         if (kbd.vkCode == 0x09 && is_alt_down) || // Alt+Tab
                            (kbd.vkCode == 0x1B && is_alt_down) || // Alt+Esc
-                           (kbd.vkCode == 0x1B && (windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(0x11 /*VK_CONTROL*/) as u16 & 0x8000) != 0) // Ctrl+Esc
+                           (kbd.vkCode == 0x1B && is_ctrl_down) || // Ctrl+Esc
+                           (kbd.vkCode == 0x1B && is_ctrl_down && is_shift_down) || // Ctrl+Shift+Esc
+                           (kbd.vkCode == 0x5B || kbd.vkCode == 0x5C) // Windows Key
                         {
                             return LRESULT(1); // Block
                         }

@@ -40,11 +40,11 @@ function App() {
   const [bedTime, setBedTime] = useState("");
   const [wakeTime, setWakeTime] = useState("");
 
-  const pageTransition: any = {
+  const pageTransition = {
     initial: { opacity: 0, scale: 0.98, y: 10 },
     animate: { opacity: 1, scale: 1, y: 0 },
     exit: { opacity: 0, scale: 0.95, y: -10 },
-    transition: { duration: 0.4, ease: "easeOut" }
+    transition: { duration: 0.4, ease: "easeOut" as const }
   };
 
   const handleOnboardingSubmit = async (e: React.FormEvent) => {

@@ -121,9 +121,15 @@ pub fn stop_scheduler() {
 }
 
 #[tauri::command]
-pub fn set_lockdown_state(active: bool) {
-    crate::activity::LOCKDOWN_ACTIVE.store(active, Ordering::Relaxed);
+pub fn set_lockdown_state(app: tauri::AppHandle, active: bool) {
+    use tauri::Manager;
+    crate::activity::LOCKDOWN_ACTIVE.store(active, std::sync::atomic::Ordering::Relaxed);
     println!("Lockdown state set to: {}", active);
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_always_on_top(active);
+        let _ = window.set_fullscreen(active);
+    }
 }
 
 #[derive(Serialize)]
